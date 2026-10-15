@@ -1203,9 +1203,9 @@ void CameraStreamingPage::updatePerformancePanel()
     const double previewFps =                                                     // 预览 FPS：实际发送到主线程 UI 的帧率
         double(capture.previewFrames - previousPreviewFrames) / elapsedSeconds;   // 受 FPS 限速(30fps) + 门控丢帧影响
     const double analysisFps =                                                    // 分析 FPS：实际发送到 AI 检测的帧率
-        double(capture.analysisFrames - previousAnalysisFrames) / elapsedSeconds; // 受 FPS 限速(6fps) + 门控丢帧影响
+        double(capture.analysisFrames - previousAnalysisFrames) / elapsedSeconds; // 受 FPS 限速(30fps) + 门控丢帧影响
     const double sentFps =                                                        // 网络发送 FPS：实际 TCP 发送成功的帧率
-        double(output.sentFrames - previousSentFrames) / elapsedSeconds;          // 受 FPS 限速(15fps) + 网络带宽影响
+        double(output.sentFrames - previousSentFrames) / elapsedSeconds;          // 受 FPS 限速(30fps) + 网络带宽影响
 
     // ===== 计算发送带宽（Mbps） =====
     // 字节差 × 8(bit/byte) / 秒 / 1000000 = Mbps
@@ -1358,7 +1358,7 @@ void CameraStreamingPage::applyServerEndpoint()
  * ===== visionDetectionToggled() — 运动检测开关 =====
  *
  * 启用时配置 VisionEventDetector 的像素变化阈值。
- * 同时确保采集线程开启分析帧分发（最高 6 FPS 给视觉线程）。
+ * 同时确保采集线程开启分析帧分发（最高 30 FPS 给视觉线程）。
  */
 void CameraStreamingPage::visionDetectionToggled(bool enabled)
 {

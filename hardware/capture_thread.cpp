@@ -34,8 +34,8 @@ namespace
 
     constexpr int LocalPreviewMaximumFps = 30;
     constexpr int LocalPreviewWhileStreamingMaximumFps = 10;
-    constexpr int NetworkStreamingMaximumFps = 15;
-    constexpr int VisionAnalysisMaximumFps = 6;
+    constexpr int NetworkStreamingMaximumFps = 30;
+    constexpr int VisionAnalysisMaximumFps = 30;
 }
 
 /*
@@ -688,7 +688,7 @@ void CaptureThread::run()
             else
                 previewThisFrame = true; // 抢到门 → 标记此帧为预览帧
         }
-        // 网络推流：最多 15 FPS
+        // 网络推流：最多 30 FPS
         if (networkEnabled &&
             networkFrameTimer.elapsed() >= networkFrameIntervalMs)
         {
@@ -699,7 +699,7 @@ void CaptureThread::run()
             else
                 sendThisFrame = true;
         }
-        // 图像分析：最多 6 FPS
+        // 图像分析：最多 30 FPS
         if (visionAnalysisEnabled &&
             analysisFrameTimer.elapsed() >= analysisFrameIntervalMs)
         {

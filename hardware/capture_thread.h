@@ -79,7 +79,7 @@ signals:
     // 网络推流帧信号：通知独立线程进行 H.264 编码和 TCP/UDP 发送
     // 独立线程处理可避免视频编码和发送阻塞 V4L2 采集。
     void networkFrameReady(QImage image);
-    // 视觉分析帧信号：当前按固定 6 FPS 上限分发给检测线程
+    // 视觉分析帧信号：当前按固定 30 FPS 上限分发给检测线程
     void analysisFrameReady(QImage image);
 
 public slots:

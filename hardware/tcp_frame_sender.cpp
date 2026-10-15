@@ -48,8 +48,8 @@ extern "C"
 // 匿名命名空间：这些常量和工具函数仅在当前 .cpp 文件内可见
 namespace
 {
-    // 目标帧率：每秒 15 帧，平衡流畅度和编码器负担
-    constexpr int FramesPerSecond = 15;
+    // 测试目标帧率：每秒最多按 30 帧配置编码时间基
+    constexpr int FramesPerSecond = 30;
     // i.MX6ULL 只有一个 Cortex-A7 核，640x480 的 libx264 软件编码只能达到约
     // 3~4 FPS。推流编码限制到 QVGA，摄像头采集和本地预览仍保持 640x480。
     // 最大编码宽度：320 像素
@@ -58,8 +58,8 @@ namespace
     constexpr int MaximumEncodedHeight = 240;
     // 目标比特率：350 kbps，在画质和带宽之间取平衡
     constexpr int TargetBitRate = 350000;
-    // GOP 大小：15 帧一个关键帧（IDR 帧），与帧率匹配即每 1 秒一个关键帧
-    constexpr int GopSize = 15;
+    // GOP 大小：30 帧一个关键帧（IDR 帧），与目标帧率匹配即每 1 秒一个关键帧
+    constexpr int GopSize = 30;
     // TCP 帧魔术字："IMXV"，用于接收端校验数据完整性（类似文件格式的文件签名）
     constexpr quint32 TcpFrameMagic = 0x494d5856; // "IMXV"
     // 版本 2 表示载荷为一帧 H.264 Access Unit；版本 1 曾用于 JPEG。
@@ -423,13 +423,13 @@ bool TcpFrameSender::initializeEncoder(int width, int height, QString *error)
     codecContext->height = height & ~1;
     // 设置像素格式为 YUV420P（H.264 标准格式，色度 4:2:0 子采样）
     codecContext->pix_fmt = AV_PIX_FMT_YUV420P;
-    // 设置时间基：1/15 秒每 tick
+    // 设置时间基：1/30 秒每 tick
     codecContext->time_base = AVRational{1, FramesPerSecond};
-    // 设置帧率：15 FPS
+    // 设置帧率：30 FPS
     codecContext->framerate = AVRational{FramesPerSecond, 1};
     // 设置目标比特率：350 kbps
     codecContext->bit_rate = TargetBitRate;
-    // 设置 GOP 大小：每 15 帧一个 IDR 关键帧
+    // 设置 GOP 大小：每 30 帧一个 IDR 关键帧
     codecContext->gop_size = GopSize;
     // 禁用 B 帧：设置最大 B 帧数为 0（低延迟推流不需要 B 帧）
     codecContext->max_b_frames = 0;
