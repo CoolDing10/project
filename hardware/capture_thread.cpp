@@ -111,7 +111,7 @@ void CaptureThread::setAnalysisEnabled(bool enabled)
  *
  * 由 QThread::start() 在独立线程中调用，不阻塞主线程。
  * 完整 V4L2 流程：
- *   open → S_FMT → REQBUFS → QUERYBUF → mmap → QBUF
+ *   open → S_FMT → S_PARM → REQBUFS → QUERYBUF → mmap → QBUF
  *        → STREAMON → (poll → DQBUF → 处理 → QBUF) 循环
  *        → STREAMOFF → munmap → 释放缓冲区 → close
  *
@@ -286,6 +286,41 @@ void CaptureThread::run()
     }
 
     /*
+     * ===== 第 2.1 步：设置摄像头采集帧率（VIDIOC_S_PARM） =====
+     * timeperframe 表示一帧占用的时间。1/30 秒一帧就是 30 FPS。
+     * ioctl 返回后驱动可能把分数约成 1000/30000，因此用交叉相乘验证。
+     */
+    struct v4l2_streamparm streamParameters = {};
+    streamParameters.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
+    streamParameters.parm.capture.timeperframe.numerator = 1;
+    streamParameters.parm.capture.timeperframe.denominator =
+        VideoPipelineConfig::StandardFramesPerSecond;
+
+    if (ioctl(videoFd, VIDIOC_S_PARM, &streamParameters) < 0)
+    {
+        logIoctlError("VIDIOC_S_PARM");
+        cleanup();
+        captureEnabled.store(false);
+        return;
+    }
+
+    const v4l2_fract actualFrameInterval =
+        streamParameters.parm.capture.timeperframe;
+    if (actualFrameInterval.numerator == 0 ||
+        quint64(actualFrameInterval.denominator) !=
+            quint64(VideoPipelineConfig::StandardFramesPerSecond) *
+                actualFrameInterval.numerator)
+    {
+        qWarning("%s did not accept %d FPS (timeperframe=%u/%u)",
+                 VIDEO_DEV, VideoPipelineConfig::StandardFramesPerSecond,
+                 actualFrameInterval.numerator,
+                 actualFrameInterval.denominator);
+        cleanup();
+        captureEnabled.store(false);
+        return;
+    }
+
+    /*
      * ===== 第 3 步：申请 MMAP 缓冲区（VIDIOC_REQBUFS） =====
      * 请求驱动为视频采集队列建立 MMAP 缓冲区：
      *   count  期望数量（不保证驱动一定原样满足）
@@ -416,25 +451,14 @@ void CaptureThread::run()
     streaming = true; // 流已启动，cleanup 中需要执行 STREAMOFF
 
     /*
-     * ===== 第 7 步：初始化三条消费者链路的固定 FPS 限速 =====
-     * 三条链路只使用时间间隔限制帧发送频率。
+     * ===== 第 7 步：初始化推流期间的本地预览降帧 =====
+     * 摄像头已经固定为 30 FPS，普通预览、网络推流和图像分析直接逐帧分发。
+     * 只有推流期间的本地预览降到 10 FPS，以减少主线程刷新压力。
      */
-    QElapsedTimer localPreviewFrameTimer;
-    localPreviewFrameTimer.start();
-    const qint64 localPreviewFrameIntervalMs =
-        1000 / VideoPipelineConfig::StandardFramesPerSecond;
+    QElapsedTimer streamingPreviewTimer;
+    streamingPreviewTimer.start();
     const qint64 localPreviewStreamingFrameIntervalMs =
         1000 / VideoPipelineConfig::StreamingPreviewFramesPerSecond;
-
-    QElapsedTimer networkFrameTimer;
-    networkFrameTimer.start();
-    const qint64 networkFrameIntervalMs =
-        1000 / VideoPipelineConfig::StandardFramesPerSecond;
-
-    QElapsedTimer analysisFrameTimer;
-    analysisFrameTimer.start();
-    const qint64 analysisFrameIntervalMs =
-        1000 / VideoPipelineConfig::StandardFramesPerSecond;
 
     // copy 警告定时器：防止 QImage::copy() 失败时日志刷屏
     QElapsedTimer frameCopyWarningTimer;  // 警告计时器
@@ -548,30 +572,17 @@ void CaptureThread::run()
         const bool localDisplayEnabled = localPreviewEnabled.load(); // 本地预览是否启用
         const bool networkEnabled = networkStreamingEnabled.load();  // RTP/UDP 推流是否启用
         const bool visionAnalysisEnabled = analysisEnabled.load();   // 图像分析是否启用
-        bool previewThisFrame = false;                               // 本帧是否发送给本地预览
-        bool sendThisFrame = false;                                  // 本帧是否发送给网络
-        bool analyzeThisFrame = false;                               // 本帧是否发送给图像分析
+        bool previewThisFrame = localDisplayEnabled;                 // 普通预览逐帧发送
+        const bool sendThisFrame = networkEnabled;                   // 网络推流逐帧发送
+        const bool analyzeThisFrame = visionAnalysisEnabled;         // 图像分析逐帧发送
 
         /*
-         * ===== 8.5 固定 FPS 限速 =====
-         * 普通预览、网络推流、图像分析统一为 30 FPS；推流时预览为 10 FPS。
+         * ===== 8.5 推流时将本地预览降到 10 FPS =====
+         * 不推流时，本地预览与摄像头保持相同的 30 FPS。
          */
-
-        // 本地预览：普通模式 30 FPS，推流期间 10 FPS
-        const qint64 activePreviewIntervalMs =
-            networkEnabled ? localPreviewStreamingFrameIntervalMs
-                           : localPreviewFrameIntervalMs;
-        if (localDisplayEnabled &&
-            localPreviewFrameTimer.elapsed() >= activePreviewIntervalMs)
-            previewThisFrame = true;
-        // 网络推流：最多 30 FPS
-        if (networkEnabled &&
-            networkFrameTimer.elapsed() >= networkFrameIntervalMs)
-            sendThisFrame = true;
-        // 图像分析：最多 30 FPS
-        if (visionAnalysisEnabled &&
-            analysisFrameTimer.elapsed() >= analysisFrameIntervalMs)
-            analyzeThisFrame = true;
+        if (networkEnabled && localDisplayEnabled &&
+            streamingPreviewTimer.elapsed() < localPreviewStreamingFrameIntervalMs)
+            previewThisFrame = false;
 
         /*
          * ===== 8.6 深拷贝 + 归还缓冲区（QBUF） =====
@@ -619,10 +630,7 @@ void CaptureThread::run()
          * 分析线程接收当前深拷贝图像，执行画面变化检测。
          */
         if (analyzeThisFrame)
-        {
-            analysisFrameTimer.restart();   // 从本次发送重新计算分析帧间隔
             emit analysisFrameReady(image); // 发射信号 → VisionEventDetector::analyzeFrame()
-        }
 
         /*
          * ===== 8.9 发射本地预览帧信号 =====
@@ -632,19 +640,17 @@ void CaptureThread::run()
          */
         if (previewThisFrame)
         {
-            localPreviewFrameTimer.restart(); // 从本次发送重新计算预览帧间隔
-            emit localPreviewReady(image);    // 发射信号 → CameraStreamingPage::updateLocalPreview()
+            if (networkEnabled)
+                streamingPreviewTimer.restart(); // 仅对推流期间的本地预览计时
+            emit localPreviewReady(image);        // 发射信号 → CameraStreamingPage::updateLocalPreview()
         }
 
         /*
          * ===== 8.10 发射网络推流帧信号 =====
-         * 网络帧以固定 30 FPS 上限投递给编码发送线程。
+         * 摄像头已经固定为 30 FPS，因此网络链路直接接收每个采集帧。
          */
         if (sendThisFrame)
-        {
-            networkFrameTimer.restart();   // 从本次发送重新计算网络帧间隔
             emit networkFrameReady(image); // 发射信号 → TcpFrameSender::sendFrame()
-        }
 
     } // while 循环结束
 

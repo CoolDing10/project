@@ -942,7 +942,7 @@ void CameraStreamingPage::applyServerEndpoint()
  * ===== visionDetectionToggled() — 运动检测开关 =====
  *
  * 启用时配置 VisionEventDetector 的像素变化阈值。
- * 同时确保采集线程开启分析帧分发（最高 30 FPS 给视觉线程）。
+ * 同时确保采集线程将每个采集帧分发给视觉线程。
  */
 void CameraStreamingPage::visionDetectionToggled(bool enabled)
 {

@@ -1,12 +1,12 @@
 /*
- * capture_thread.h — V4L2 摄像头采集线程与三路固定帧率分发器
+ * capture_thread.h — V4L2 摄像头采集线程与三路帧分发器
  *
  * CaptureThread 在独立线程中完成 V4L2 采集，再将同一份深拷贝图像分发给：
  *   localPreviewReady  → 主线程本地预览
  *   networkFrameReady  → 网络线程 H.264 编码与发送
  *   analysisFrameReady → 视觉线程画面变化检测
  *
- * 各链路只按 video_pipeline_config.h 中的固定帧率分发。
+ * 摄像头固定采集 30 FPS；推流时本地预览单独降为 10 FPS。
  */
 #ifndef CAPTURE_THREAD_H
 #define CAPTURE_THREAD_H
