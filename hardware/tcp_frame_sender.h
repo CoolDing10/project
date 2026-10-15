@@ -2,8 +2,6 @@
 #ifndef TCP_FRAME_SENDER_H
 #define TCP_FRAME_SENDER_H
 
-// 引入 C++ 原子操作库，用于多线程安全的计数器
-#include <atomic>
 // 引入 Qt 的 IP 地址封装类
 #include <QHostAddress>
 // 引入 Qt 的图像类，用于接收和处理帧图像
@@ -28,25 +26,6 @@ struct AVPacket;
 // 前向声明：FFmpeg 像素格式转换上下文，用于 RGB → YUV420P 转换
 struct SwsContext;
 
-// 帧输出统计数据结构体，用于向外暴露编码和发送的统计数据
-struct FrameOutputStatistics
-{
-    // 接收到的帧总数（从摄像头或其他源送入的原始帧数）
-    quint64 receivedFrames = 0;
-    // 成功编码的帧总数（经过 H.264 编码器成功编码的帧数）
-    quint64 encodedFrames = 0;
-    // 成功发送的帧总数（通过网络成功发出的编码帧数）
-    quint64 sentFrames = 0;
-    // 丢弃的帧总数（编码失败或发送失败导致跳过的帧数）
-    quint64 droppedFrames = 0;
-    // 已发送的总字节数（通过网络发出的所有数据字节累计）
-    quint64 sentBytes = 0;
-    // 编码总耗时（微秒），所有帧编码耗时的累计值
-    quint64 totalEncodeMicroseconds = 0;
-    // 最近一次编码的耗时（微秒），用于实时监控编码性能
-    quint64 lastEncodeMicroseconds = 0;
-};
-
 // 帧发送器类：名称为兼容原有 UI 保留；支持 H.264/TCP 和 H.264/RTP/UDP 两种链路。
 // 负责从 QImage 到 H.264 编码再到网络发送的完整流水线
 class TcpFrameSender : public QObject
@@ -59,10 +38,6 @@ public:
     explicit TcpFrameSender(QObject *parent = nullptr);
     // 析构函数，负责释放编码器资源和取消网络连接
     ~TcpFrameSender() override;
-    // 获取当前的帧统计数据快照
-    // @return FrameOutputStatistics 包含所有计数字段最新值的结构体
-    FrameOutputStatistics statistics() const;
-
 public slots:
     // 初始化槽函数：创建 UDP/TCP 套接字、重连定时器等资源（仅首次调用有效）
     void initialize();
@@ -78,7 +53,7 @@ public slots:
     void sendFrame(const QImage &image);
     // 开始录像槽函数
     // @param filePath 录像文件的完整保存路径
-    // @param durationMs 录像时长（毫秒），<= 0 表示手动停止
+    // @param durationMs 自动事件录像时长（毫秒），必须大于 0
     void startRecording(const QString &filePath, int durationMs);
     // 停止录像槽函数
     void stopRecording();
@@ -86,8 +61,6 @@ public slots:
     void stop();
 
 signals:
-    // 帧处理完成信号：通知调用方当前帧已处理完毕，可送入下一帧
-    void frameHandled();
     // 状态变更信号：用于 UI 显示当前连接/编码状态信息
     // @param status 状态描述字符串
     void statusChanged(const QString &status);
@@ -175,8 +148,6 @@ private:
     bool sendingEnabled;
     // 是否使用 TCP 传输模式（false 表示 UDP/RTP 模式）
     bool tcpTransport;
-    // 是否处于手动录像模式（true 表示由用户手动停止）
-    bool manualRecordingActive;
     // 当前活跃的录像文件路径
     QString activeRecordingPath;
 
@@ -189,22 +160,6 @@ private:
     AVPacket *codecPacket;
     // 像素格式转换上下文，用于 RGB → YUV420P 的色彩空间和分辨率转换
     SwsContext *scaleContext;
-
-    // --- 线程安全的原子计数器 ---
-    // 接收帧计数器（原子操作，保证多线程读写安全）
-    std::atomic<quint64> receivedFrameCount;
-    // 编码帧计数器
-    std::atomic<quint64> encodedFrameCount;
-    // 发送帧计数器
-    std::atomic<quint64> sentFrameCount;
-    // 丢弃帧计数器
-    std::atomic<quint64> droppedFrameCount;
-    // 发送字节计数器
-    std::atomic<quint64> sentByteCount;
-    // 编码总耗时（微秒）
-    std::atomic<quint64> totalEncodeMicroseconds;
-    // 最近一次编码耗时（微秒）
-    std::atomic<quint64> lastEncodeMicroseconds;
 };
 
 // 头文件保护宏结束

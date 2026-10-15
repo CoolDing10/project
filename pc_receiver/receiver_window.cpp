@@ -67,7 +67,6 @@ namespace
     // TCP 帧魔术字字节数组，用于快速前缀匹配（QByteArray::startsWith）
     const QByteArray TcpFrameMagicBytes("IMXV", 4);
 }
-
 // 构造函数：创建 PC 端监控窗口的所有 UI 控件和网络资源
 // @param parent 父窗口指针
 ReceiverWindow::ReceiverWindow(QWidget *parent)
@@ -167,8 +166,7 @@ ReceiverWindow::ReceiverWindow(QWidget *parent)
     } commands[] = {
         {"开始采集", "start_capture"}, {"停止采集", "stop_capture"},
         {"开启推流", "stream_on"}, {"停止推流", "stream_off"},
-        {"开启视觉检测", "vision_on"}, {"停止视觉检测", "vision_off"},
-        {"远程抓拍", "snapshot"}};
+        {"开启视觉检测", "vision_on"}, {"停止视觉检测", "vision_off"}};
     // 遍历所有命令，逐个创建按钮并放入网格
     for (int i = 0; i < int(sizeof(commands) / sizeof(commands[0])); ++i)
     {
@@ -829,7 +827,7 @@ void ReceiverWindow::handleMqttMessage(const QByteArray &message, const QString 
 }
 
 // 通过 MQTT 向设备发布远程控制命令
-// @param command 命令字符串（如 "start_capture", "snapshot" 等）
+// @param command 命令字符串（如 "start_capture"、"stream_on" 等）
 // @param arguments 附加参数（JSON 对象）
 void ReceiverWindow::publishCommand(const QString &command, const QJsonObject &arguments)
 {
@@ -861,23 +859,3 @@ void ReceiverWindow::resizeEvent(QResizeEvent *event)
     if (!lastFrame.isNull())
         showFrame(lastFrame);
 }
-
-#if 0
-/*
- * 学习版停用命令和状态字段的原代码备份。
- * 原位置分别是 ReceiverWindow UI 命令数组和 handleMqttMessage()。
- * 恢复时按说明移回原位置，不能直接把本区改成 #if 1。
- */
-{"开启人脸检测", "face_on"}, {"停止人脸检测", "face_off"},
-{"开启传感器", "sensors_on"}, {"停止传感器", "sensors_off"},
-{"开启告警", "alarm_on"}, {"关闭告警", "alarm_off"},
-
-const QString disabledStatus = QStringLiteral(
-                                   "人脸检测: %1 (当前 %2 人) ALS: %3 PS: %4 温度: %5")
-                                   .arg(object.value("faceDetectionEnabled").toBool() ? "ON" : "OFF")
-                                   .arg(object.value("facesDetected").toInt())
-                                   .arg(object.value("ambientLight").toString(),
-                                        object.value("proximity").toString(),
-                                        object.value("temperature").toString());
-Q_UNUSED(disabledStatus)
-#endif

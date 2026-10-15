@@ -1,5 +1,6 @@
 // 包含本类的头文件声明
 #include "tcp_frame_sender.h"
+#include "video_pipeline_config.h"
 // 引入 RTP 打包协议定义（分包头结构体、分包工具函数）
 #include "rtp_packet.h"
 
@@ -11,8 +12,6 @@
 #include <QDateTime>
 // Qt 目录操作类，用于创建录像文件所需的父目录
 #include <QDir>
-// Qt 高精度计时器类，用于精确测量编码耗时
-#include <QElapsedTimer>
 // Qt 文件操作类，用于录像文件的打开、写入和关闭
 #include <QFile>
 // Qt 文件信息类，用于提取文件路径中的目录部分
@@ -48,8 +47,6 @@ extern "C"
 // 匿名命名空间：这些常量和工具函数仅在当前 .cpp 文件内可见
 namespace
 {
-    // 测试目标帧率：每秒最多按 30 帧配置编码时间基
-    constexpr int FramesPerSecond = 30;
     // i.MX6ULL 只有一个 Cortex-A7 核，640x480 的 libx264 软件编码只能达到约
     // 3~4 FPS。推流编码限制到 QVGA，摄像头采集和本地预览仍保持 640x480。
     // 最大编码宽度：320 像素
@@ -58,8 +55,6 @@ namespace
     constexpr int MaximumEncodedHeight = 240;
     // 目标比特率：350 kbps，在画质和带宽之间取平衡
     constexpr int TargetBitRate = 350000;
-    // GOP 大小：30 帧一个关键帧（IDR 帧），与目标帧率匹配即每 1 秒一个关键帧
-    constexpr int GopSize = 30;
     // TCP 帧魔术字："IMXV"，用于接收端校验数据完整性（类似文件格式的文件签名）
     constexpr quint32 TcpFrameMagic = 0x494d5856; // "IMXV"
     // 版本 2 表示载荷为一帧 H.264 Access Unit；版本 1 曾用于 JPEG。
@@ -139,18 +134,10 @@ TcpFrameSender::TcpFrameSender(QObject *parent)
       encoderPts(0),                                    // 编码器 PTS 从 0 开始
       sendingEnabled(false),                            // 默认不启用推流
       tcpTransport(false),                              // 默认使用 UDP 传输模式
-      manualRecordingActive(false),                     // 默认非手动录像模式
       codecContext(nullptr),                            // 编码器上下文初始为 nullptr（惰性初始化）
       codecFrame(nullptr),                              // 编码器输入帧初始为 nullptr
       codecPacket(nullptr),                             // 编码器输出包初始为 nullptr
-      scaleContext(nullptr),                            // 像素转换上下文初始为 nullptr
-      receivedFrameCount(0),                            // 接收帧计数器清零
-      encodedFrameCount(0),                             // 编码帧计数器清零
-      sentFrameCount(0),                                // 发送帧计数器清零
-      droppedFrameCount(0),                             // 丢弃帧计数器清零
-      sentByteCount(0),                                 // 发送字节计数器清零
-      totalEncodeMicroseconds(0),                       // 编码总耗时清零
-      lastEncodeMicroseconds(0)                         // 最后一次编码耗时清零
+      scaleContext(nullptr)                             // 像素转换上下文初始为 nullptr
 {
 }
 
@@ -159,29 +146,6 @@ TcpFrameSender::~TcpFrameSender()
 {
     // 释放所有 FFmpeg 编码器资源（编码器上下文、帧、包、像素转换器）
     releaseEncoder();
-}
-
-// 获取当前的帧统计信息快照（线程安全，所有计数器均为原子变量）
-// @return FrameOutputStatistics 包含所有统计字段的结构体
-FrameOutputStatistics TcpFrameSender::statistics() const
-{
-    // 创建返回值结构体
-    FrameOutputStatistics value;
-    // 原子读取接收帧数
-    value.receivedFrames = receivedFrameCount.load();
-    // 原子读取编码帧数
-    value.encodedFrames = encodedFrameCount.load();
-    // 原子读取发送帧数
-    value.sentFrames = sentFrameCount.load();
-    // 原子读取丢弃帧数
-    value.droppedFrames = droppedFrameCount.load();
-    // 原子读取发送字节数
-    value.sentBytes = sentByteCount.load();
-    // 原子读取编码总耗时（微秒）
-    value.totalEncodeMicroseconds = totalEncodeMicroseconds.load();
-    // 原子读取最近一次编码耗时（微秒）
-    value.lastEncodeMicroseconds = lastEncodeMicroseconds.load();
-    return value;
 }
 
 // 初始化网络套接字和定时器资源（仅首次调用有效，后续调用直接返回）
@@ -368,8 +332,6 @@ bool TcpFrameSender::sendTcpFrame(const QByteArray &accessUnit, int width, int h
         return false;
     // 帧序列号递增
     ++frameSequence;
-    // 原子更新发送字节计数
-    sentByteCount.fetch_add(quint64(written));
     return true;
 }
 
@@ -424,13 +386,15 @@ bool TcpFrameSender::initializeEncoder(int width, int height, QString *error)
     // 设置像素格式为 YUV420P（H.264 标准格式，色度 4:2:0 子采样）
     codecContext->pix_fmt = AV_PIX_FMT_YUV420P;
     // 设置时间基：1/30 秒每 tick
-    codecContext->time_base = AVRational{1, FramesPerSecond};
+    codecContext->time_base = AVRational{
+        1, VideoPipelineConfig::StandardFramesPerSecond};
     // 设置帧率：30 FPS
-    codecContext->framerate = AVRational{FramesPerSecond, 1};
+    codecContext->framerate = AVRational{
+        VideoPipelineConfig::StandardFramesPerSecond, 1};
     // 设置目标比特率：350 kbps
     codecContext->bit_rate = TargetBitRate;
     // 设置 GOP 大小：每 30 帧一个 IDR 关键帧
-    codecContext->gop_size = GopSize;
+    codecContext->gop_size = VideoPipelineConfig::StandardFramesPerSecond;
     // 禁用 B 帧：设置最大 B 帧数为 0（低延迟推流不需要 B 帧）
     codecContext->max_b_frames = 0;
     // 设置编码线程数为 1（i.MX6ULL 单核 Cortex-A7，多线程无益且可能导致帧乱序）
@@ -675,8 +639,6 @@ bool TcpFrameSender::sendAccessUnit(const QByteArray &accessUnit, bool keyFrame,
     // 分包数有效性检查：0 或超过最大分包限制则失败
     if (count <= 0 || count > VideoRtp::MaximumFragmentsPerFrame)
         return false;
-    // 本帧发送的总字节数
-    quint64 frameBytes = 0;
     // 逐分包发送
     for (int index = 0; index < count; ++index)
     {
@@ -709,13 +671,9 @@ bool TcpFrameSender::sendAccessUnit(const QByteArray &accessUnit, bool keyFrame,
         // 检查是否完整写入
         if (written != datagram.size())
             return false;
-        // 累加本帧已发送字节数
-        frameBytes += quint64(written);
     }
     // 帧序列号递增（每帧发送完成后递增一次）
     ++frameSequence;
-    // 原子更新发送字节计数器
-    sentByteCount.fetch_add(frameBytes);
     return true;
 }
 
@@ -749,32 +707,21 @@ bool TcpFrameSender::writeRecordingFrame(const QImage &image)
 // @param image 来自摄像头采集的原始 QImage 帧
 void TcpFrameSender::sendFrame(const QImage &image)
 {
-    // 原子递增接收帧计数器
-    receivedFrameCount.fetch_add(1);
     // 检查是否正在进行录像（文件已打开写入）
     const bool recording = recordingFile && recordingFile->isOpen();
     // 如果图像为空，或推流和录像都不需要处理，则丢弃此帧
     if (image.isNull() || (!sendingEnabled && !recording))
     {
-        // 原子递增丢弃帧计数器
-        droppedFrameCount.fetch_add(1);
-        // 发出帧处理完成信号
-        emit frameHandled();
         return;
     }
     // 如果正在录像，先写入录像文件（MJPEG 格式）
     if (recording)
         writeRecordingFrame(image);
-    // 如果推流未启用，只需处理录像，发出帧处理完成信号后返回
+    // 如果推流未启用，只需处理录像后返回
     if (!sendingEnabled)
     {
-        emit frameHandled();
         return;
     }
-    // 创建高精度计时器，用于测量编码耗时
-    QElapsedTimer timer;
-    // 启动计时器
-    timer.start();
     // 获取当前时间的毫秒级时间戳（用于接收端的帧同步）
     const qint64 timestampMs = QDateTime::currentMSecsSinceEpoch();
     // 编码后的 H.264 数据缓冲区
@@ -785,25 +732,13 @@ void TcpFrameSender::sendFrame(const QImage &image)
     QString error;
     // 调用编码函数：将 QImage 编码为 H.264 访问单元
     const bool encoded = encodeFrame(image, &encodedFrame, &keyFrame, &error);
-    // 计算编码耗时（纳秒转微秒）
-    const quint64 elapsed = quint64(timer.nsecsElapsed() / 1000);
     // 编码失败处理
     if (!encoded)
     {
-        // 原子递增丢弃帧计数器
-        droppedFrameCount.fetch_add(1);
         // 发送编码失败状态信息
         emit statusChanged(QStringLiteral("H.264 编码失败：%1").arg(error));
-        // 发出帧处理完成信号
-        emit frameHandled();
         return;
     }
-    // 原子递增编码帧计数器
-    encodedFrameCount.fetch_add(1);
-    // 原子累加编码总耗时
-    totalEncodeMicroseconds.fetch_add(elapsed);
-    // 存储最近一次编码耗时
-    lastEncodeMicroseconds.store(elapsed);
     // 根据传输模式选择发送方式：
     // TCP 模式 → sendTcpFrame    UDP 模式 → sendAccessUnit (RTP/UDP)
     const bool sent = tcpTransport
@@ -811,14 +746,9 @@ void TcpFrameSender::sendFrame(const QImage &image)
                                          codecContext->height, timestampMs)
                           : sendAccessUnit(encodedFrame, keyFrame,
                                            quint64(timestampMs) * 1000); // 毫秒转微秒
-    // 发送成功或失败的处理
-    if (sent)
-        // 原子递增发送帧计数器
-        sentFrameCount.fetch_add(1);
-    else
+    // 发送失败处理
+    if (!sent)
     {
-        // 发送失败：原子递增丢弃帧计数器
-        droppedFrameCount.fetch_add(1);
         // 根据传输模式发送不同的错误状态信息
         if (tcpTransport)
             // TCP 模式：区分是"已连接但拥塞"还是"未连接"
@@ -832,32 +762,25 @@ void TcpFrameSender::sendFrame(const QImage &image)
                                    .arg(udpSocket ? udpSocket->errorString()
                                                   : QStringLiteral("socket 未初始化")));
     }
-    // 无论发送成功与否，均发出帧处理完成信号
-    emit frameHandled();
 }
 
 // 开始录像：将视频帧以 MJPEG 格式写入文件
 // @param filePath 录像文件的完整保存路径
-// @param durationMs 录像持续时间（毫秒），<= 0 表示手动停止
+// @param durationMs 自动事件录像持续时间（毫秒），必须大于 0
 void TcpFrameSender::startRecording(const QString &filePath, int durationMs)
 {
+    if (durationMs <= 0)
+    {
+        emit recordingError(QStringLiteral("自动事件录像时长必须大于 0"));
+        return;
+    }
     // 确保网络和文件资源已初始化
     if (!recordingFile)
         initialize();
     // 如果文件已打开（可能已在录像中）
     if (recordingFile->isOpen())
     {
-        // durationMs <= 0 表示请求手动控制停止
-        if (durationMs <= 0)
-        {
-            // 设置手动录像模式标志
-            manualRecordingActive = true;
-            // 停止定时器（由用户手动控制停止时机）
-            recordingStopTimer->stop();
-        }
-        // durationMs > 0 且非手动模式下，重新设置定时器时间
-        else if (!manualRecordingActive)
-            recordingStopTimer->start(durationMs);
+        recordingStopTimer->start(durationMs);
         return;
     }
     // 创建录像文件所在的父目录（如果不存在）
@@ -873,11 +796,7 @@ void TcpFrameSender::startRecording(const QString &filePath, int durationMs)
     }
     // 记录当前活跃的录像文件路径
     activeRecordingPath = filePath;
-    // durationMs <= 0 表示手动停止模式
-    manualRecordingActive = durationMs <= 0;
-    // 如果指定了录像时长，启动停止定时器
-    if (durationMs > 0)
-        recordingStopTimer->start(durationMs);
+    recordingStopTimer->start(durationMs);
     // 发送录像开始状态信号
     emit recordingStateChanged(true, filePath);
 }
@@ -899,8 +818,6 @@ void TcpFrameSender::stopRecording()
     recordingFile->close();
     // 清空活跃录像路径（表示当前无录像进行中）
     activeRecordingPath.clear();
-    // 取消手动录像模式标志
-    manualRecordingActive = false;
     // 发送录像停止状态信号
     emit recordingStateChanged(false, path);
 }

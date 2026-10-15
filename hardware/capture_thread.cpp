@@ -3,12 +3,10 @@
  * All rights reserved.
  */
 #include "capture_thread.h"
+#include "video_pipeline_config.h"
 
 #include <QDebug>
 #include <QElapsedTimer>
-#include <QMutexLocker>
-#include <QPainter>
-#include <QPen>
 
 #if defined(__linux__) && defined(__arm__)
 #include <algorithm>
@@ -23,25 +21,10 @@
 #include <unistd.h>
 #endif
 
-namespace
-{
-    /*
-     * 临时测试配置：三条消费者链路都关闭单帧门控，使用下方固定 FPS 限速。
-     */
-    constexpr bool LocalPreviewBackpressureEnabled = false;
-    constexpr bool NetworkBackpressureEnabled = false;
-    constexpr bool AnalysisBackpressureEnabled = false;
-
-    constexpr int LocalPreviewMaximumFps = 30;
-    constexpr int LocalPreviewWhileStreamingMaximumFps = 10;
-    constexpr int NetworkStreamingMaximumFps = 30;
-    constexpr int VisionAnalysisMaximumFps = 30;
-}
-
 /*
  * ===== CaptureThread 构造函数 =====
  * 参数 parent：Qt 父对象指针（nullptr 表示无父对象）
- * 初始化列表：将所有 atomic 标志和计数器置为 false / 0
+ * 初始化列表：将所有 atomic 标志置为 false
  * 函数体为空：所有初始化都在初始化列表中完成
  */
 CaptureThread::CaptureThread(QObject *parent)
@@ -49,19 +32,7 @@ CaptureThread::CaptureThread(QObject *parent)
       captureEnabled(false),           // 采集开关初始关闭
       networkStreamingEnabled(false),  // 网络推流初始关闭
       localPreviewEnabled(false),      // 本地预览初始关闭
-      analysisEnabled(false),          // 视觉分析初始关闭
-      faceOverlayEnabled(false),       // 人脸框叠加初始关闭
-      localPreviewFramePending(false), // 本地预览门控初始打开（无帧等待）
-      networkFramePending(false),      // 网络门控初始打开
-      analysisFramePending(false),     // 分析门控初始打开
-      capturedFrameCount(0),           // 采集计数器归零
-      previewFrameCount(0),            // 预览帧计数器归零
-      networkFrameCount(0),            // 网络帧计数器归零
-      analysisFrameCount(0),           // 分析帧计数器归零
-      previewDroppedFrameCount(0),     // 预览丢帧计数器归零
-      networkDroppedFrameCount(0),     // 网络丢帧计数器归零
-      analysisDroppedFrameCount(0),    // 分析丢帧计数器归零
-      frameCopyFailureCount(0)         // 拷贝失败计数器归零
+      analysisEnabled(false)           // 视觉分析初始关闭
 {
     // 构造函数体为空：所有成员已在初始化列表中完成赋值
 }
@@ -81,26 +52,6 @@ CaptureThread::~CaptureThread()
     requestInterruption();
     // 阻塞等待线程 run() 函数返回（超时则死等），确保资源已被 cleanup() 释放
     wait();
-}
-
-/*
- * ===== statistics() — 创建统计快照 =====
- * 返回 CapturePipelineStatistics 结构体（值传递）
- * 主线程每秒调用一次，读取所有原子计数器的当前值。
- * .load() 是 std::atomic 的读取方法，保证读操作是原子的。
- */
-CapturePipelineStatistics CaptureThread::statistics() const
-{
-    CapturePipelineStatistics snapshot;                                // 创建栈上的快照结构体
-    snapshot.capturedFrames = capturedFrameCount.load();               // 读取采集帧数
-    snapshot.previewFrames = previewFrameCount.load();                 // 读取预览帧数
-    snapshot.networkFrames = networkFrameCount.load();                 // 读取网络帧数
-    snapshot.analysisFrames = analysisFrameCount.load();               // 读取分析帧数
-    snapshot.previewDroppedFrames = previewDroppedFrameCount.load();   // 读取预览丢帧数
-    snapshot.networkDroppedFrames = networkDroppedFrameCount.load();   // 读取网络丢帧数
-    snapshot.analysisDroppedFrames = analysisDroppedFrameCount.load(); // 读取分析丢帧数
-    snapshot.frameCopyFailures = frameCopyFailureCount.load();         // 读取拷贝失败次数
-    return snapshot;                                                   // 返回快照副本（值拷贝，主线程拿到的是稳定的副本）
 }
 
 /*
@@ -156,61 +107,6 @@ void CaptureThread::setAnalysisEnabled(bool enabled)
 }
 
 /*
- * ===== setFaceOverlayEnabled() — 人脸框叠加开关 =====
- * 参数 enabled：true 在预览帧上画人脸框，false 不画并清空已有框
- * 关闭时会加锁清空 latestFaceBoxes（视觉线程可能同时在写入）
- */
-void CaptureThread::setFaceOverlayEnabled(bool enabled)
-{
-    faceOverlayEnabled.store(enabled); // 原子写入：更新人脸框叠加标识
-    if (!enabled)
-    {
-        // 关闭人脸框时，加锁清空已有的检测框缓存
-        QMutexLocker locker(&faceOverlayMutex); // 构造时 lock()，析构时 unlock()
-        latestFaceBoxes.clear();                // 清空人脸框坐标列表
-    }
-}
-
-/*
- * ===== updateFaceOverlay() — 更新人脸框坐标 =====
- * 参数 faceBoxes：由 VisionEventDetector 传入的人脸框 QRect 列表
- * 使用 QMutexLocker 确保线程安全（视觉线程写、采集线程读）
- */
-void CaptureThread::updateFaceOverlay(QVector<QRect> faceBoxes)
-{
-    QMutexLocker locker(&faceOverlayMutex); // 加锁保护 latestFaceBoxes
-    latestFaceBoxes = faceBoxes;            // 拷贝新的人脸框坐标列表
-    // locker 析构时自动解锁
-}
-
-/*
- * ===== localPreviewFrameHandled() — 本地预览帧消费确认 =====
- * 主线程调用此函数，表示上一帧 UI 已处理完毕，门控打开允许下一帧
- */
-void CaptureThread::localPreviewFrameHandled()
-{
-    localPreviewFramePending.store(false); // 原子写入：设置门控为 false（开门）
-}
-
-/*
- * ===== networkFrameHandled() — 网络帧消费确认 =====
- * TcpFrameSender 线程调用此函数，表示上一帧已编码发送完毕，门控打开
- */
-void CaptureThread::networkFrameHandled()
-{
-    networkFramePending.store(false); // 原子写入：打开网络门控
-}
-
-/*
- * ===== analysisFrameHandled() — 分析帧消费确认 =====
- * VisionEventDetector 线程调用此函数，表示上一帧 AI 推理完毕，门控打开
- */
-void CaptureThread::analysisFrameHandled()
-{
-    analysisFramePending.store(false); // 原子写入：打开分析门控
-}
-
-/*
  * ===== run() — 线程主函数（V4L2 采集流水线核心实现） =====
  *
  * 由 QThread::start() 在独立线程中调用，不阻塞主线程。
@@ -234,11 +130,6 @@ void CaptureThread::run()
     return;                      // 直接返回，不执行任何 V4L2 操作
 #else
     // ===== V4L2 采集仅在 ARM Linux 平台编译和执行 =====
-
-    if (!LocalPreviewBackpressureEnabled &&
-        !NetworkBackpressureEnabled &&
-        !AnalysisBackpressureEnabled)
-        qWarning() << "测试模式：三路帧门控已关闭，固定 FPS 限速已恢复";
 
     /*
      * ===== MappedBuffer 结构体：保存一个 mmap() 映射的 V4L2 缓冲区 =====
@@ -526,24 +417,24 @@ void CaptureThread::run()
 
     /*
      * ===== 第 7 步：初始化三条消费者链路的固定 FPS 限速 =====
-     * 当前测试关闭门控，仅使用时间间隔限制帧发送频率。
+     * 三条链路只使用时间间隔限制帧发送频率。
      */
     QElapsedTimer localPreviewFrameTimer;
     localPreviewFrameTimer.start();
     const qint64 localPreviewFrameIntervalMs =
-        1000 / LocalPreviewMaximumFps;
+        1000 / VideoPipelineConfig::StandardFramesPerSecond;
     const qint64 localPreviewStreamingFrameIntervalMs =
-        1000 / LocalPreviewWhileStreamingMaximumFps;
+        1000 / VideoPipelineConfig::StreamingPreviewFramesPerSecond;
 
     QElapsedTimer networkFrameTimer;
     networkFrameTimer.start();
     const qint64 networkFrameIntervalMs =
-        1000 / NetworkStreamingMaximumFps;
+        1000 / VideoPipelineConfig::StandardFramesPerSecond;
 
     QElapsedTimer analysisFrameTimer;
     analysisFrameTimer.start();
     const qint64 analysisFrameIntervalMs =
-        1000 / VisionAnalysisMaximumFps;
+        1000 / VideoPipelineConfig::StandardFramesPerSecond;
 
     // copy 警告定时器：防止 QImage::copy() 失败时日志刷屏
     QElapsedTimer frameCopyWarningTimer;  // 警告计时器
@@ -653,25 +544,17 @@ void CaptureThread::run()
             static_cast<int>(format.fmt.pix.height),                 // 高度：480
             bytesPerLine,                                            // 行跨度
             QImage::Format_RGB16);                                   // 像素格式 RGB565
-        // 采集帧计数 +1（原子操作，保证线程安全）
-        capturedFrameCount.fetch_add(1);
-
         // ===== 8.4 读取三个消费者的使能标志 =====
         const bool localDisplayEnabled = localPreviewEnabled.load(); // 本地预览是否启用
         const bool networkEnabled = networkStreamingEnabled.load();  // RTP/UDP 推流是否启用
-        const bool visionAnalysisEnabled = analysisEnabled.load();   // AI 分析是否启用
+        const bool visionAnalysisEnabled = analysisEnabled.load();   // 图像分析是否启用
         bool previewThisFrame = false;                               // 本帧是否发送给本地预览
         bool sendThisFrame = false;                                  // 本帧是否发送给网络
-        bool analyzeThisFrame = false;                               // 本帧是否发送给 AI 分析
+        bool analyzeThisFrame = false;                               // 本帧是否发送给图像分析
 
         /*
-         * ===== 8.5 固定 FPS 限速 + 可切换门控 =====
-         * 当前三路门控开关均为 false，因此只按 30/10、15、6 FPS 分发。
-         * Pending 门控代码仍保留，之后把对应开关改为 true 即可恢复。
-         *
-         * exchange(true) 是原子操作：把当前值设为 true，返回之前的值。
-         * 如果之前的值是 false → 成功抢到门 → 可以发帧
-         * 如果之前的值是 true  → 门已关着 → 丢帧计数 +1
+         * ===== 8.5 固定 FPS 限速 =====
+         * 普通预览、网络推流、图像分析统一为 30 FPS；推流时预览为 10 FPS。
          */
 
         // 本地预览：普通模式 30 FPS，推流期间 10 FPS
@@ -680,36 +563,15 @@ void CaptureThread::run()
                            : localPreviewFrameIntervalMs;
         if (localDisplayEnabled &&
             localPreviewFrameTimer.elapsed() >= activePreviewIntervalMs)
-        {
-            if (!LocalPreviewBackpressureEnabled)
-                previewThisFrame = true; // 临时测试：不检查预览门控
-            else if (localPreviewFramePending.exchange(true))
-                previewDroppedFrameCount.fetch_add(1); // 门已关 → 丢帧 +1
-            else
-                previewThisFrame = true; // 抢到门 → 标记此帧为预览帧
-        }
+            previewThisFrame = true;
         // 网络推流：最多 30 FPS
         if (networkEnabled &&
             networkFrameTimer.elapsed() >= networkFrameIntervalMs)
-        {
-            if (!NetworkBackpressureEnabled)
-                sendThisFrame = true; // 临时测试：不检查网络门控
-            else if (networkFramePending.exchange(true))
-                networkDroppedFrameCount.fetch_add(1); // 网络忙 → 丢帧
-            else
-                sendThisFrame = true;
-        }
+            sendThisFrame = true;
         // 图像分析：最多 30 FPS
         if (visionAnalysisEnabled &&
             analysisFrameTimer.elapsed() >= analysisFrameIntervalMs)
-        {
-            if (!AnalysisBackpressureEnabled)
-                analyzeThisFrame = true; // 临时测试：不检查分析门控
-            else if (analysisFramePending.exchange(true))
-                analysisDroppedFrameCount.fetch_add(1); // AI 忙 → 丢帧
-            else
-                analyzeThisFrame = true;
-        }
+            analyzeThisFrame = true;
 
         /*
          * ===== 8.6 深拷贝 + 归还缓冲区（QBUF） =====
@@ -737,21 +599,11 @@ void CaptureThread::run()
         /*
          * ===== 8.7 空图像检查 =====
          * 内存不足时 QImage::copy() 会返回空图像（isNull() == true）。
-         * 此时必须释放单帧门控（否则门永远不会打开，后续帧全部丢弃），
-         * 并且不把空图像交给 QPixmap 或 JPEG 编码器（会导致崩溃或花屏）。
+         * 此时不能把空图像交给 QPixmap 或 JPEG 编码器。
          */
         if ((previewThisFrame || sendThisFrame || analyzeThisFrame) &&
             image.isNull())
         {
-            frameCopyFailureCount.fetch_add(1); // 拷贝失败计数 +1
-            // 释放三个门控
-            if (previewThisFrame)
-                localPreviewFramePending.store(false); // 打开本地预览门
-            if (sendThisFrame)
-                networkFramePending.store(false); // 打开网络门
-            if (analyzeThisFrame)
-                analysisFramePending.store(false); // 打开分析门
-
             // 限速日志输出：最多每秒打印一次警告
             if (!frameCopyWarningPrinted || frameCopyWarningTimer.elapsed() >= 1000)
             {
@@ -768,9 +620,8 @@ void CaptureThread::run()
          */
         if (analyzeThisFrame)
         {
-            analysisFrameTimer.restart();    // 从本次发送重新计算分析帧间隔
-            analysisFrameCount.fetch_add(1); // 分析帧计数 +1
-            emit analysisFrameReady(image);  // 发射信号 → VisionEventDetector::analyzeFrame()
+            analysisFrameTimer.restart();   // 从本次发送重新计算分析帧间隔
+            emit analysisFrameReady(image); // 发射信号 → VisionEventDetector::analyzeFrame()
         }
 
         /*
@@ -782,20 +633,17 @@ void CaptureThread::run()
         if (previewThisFrame)
         {
             localPreviewFrameTimer.restart(); // 从本次发送重新计算预览帧间隔
-            previewFrameCount.fetch_add(1);   // 预览帧计数 +1
             emit localPreviewReady(image);    // 发射信号 → CameraStreamingPage::updateLocalPreview()
         }
 
         /*
          * ===== 8.10 发射网络推流帧信号 =====
-         * 网络线程尚未处理完上一帧时会丢弃当前帧（由门控决定）。
-         * 实时监控更看重低延迟，不应在网络变慢时累积越来越旧的画面。
+         * 网络帧以固定 30 FPS 上限投递给编码发送线程。
          */
         if (sendThisFrame)
         {
-            networkFrameTimer.restart();    // 从本次发送重新计算网络帧间隔
-            networkFrameCount.fetch_add(1); // 网络帧计数 +1
-            emit networkFrameReady(image);  // 发射信号 → TcpFrameSender::sendFrame()
+            networkFrameTimer.restart();   // 从本次发送重新计算网络帧间隔
+            emit networkFrameReady(image); // 发射信号 → TcpFrameSender::sendFrame()
         }
 
     } // while 循环结束
@@ -808,44 +656,6 @@ void CaptureThread::run()
     cleanup();
 
     // 将公开状态同步为"采集已经结束"
-    captureEnabled.store(false);           // 采集已停止
-    localPreviewFramePending.store(false); // 打开本地预览门（防止门一直关着）
-    networkFramePending.store(false);      // 打开网络门
-    analysisFramePending.store(false);     // 打开分析门
+    captureEnabled.store(false); // 采集已停止
 #endif // __linux__ && __arm__
 } // run() 结束
-
-#if 0
-/*
- * 学习版停用的人脸框绘制原代码（原位置：CaptureThread::run() 第 8.9 步）。
- * 统一放在文件末尾，避免打断 V4L2 采集与三路帧分发主流程。
- * 恢复时把该片段移回 run()，不要直接把文件作用域的 #if 0 改成 #if 1。
- */
-if (faceOverlayEnabled.load())
-{
-    QVector<QRect> faceBoxes;
-    {
-        QMutexLocker locker(&faceOverlayMutex);
-        faceBoxes = latestFaceBoxes;
-    }
-    if (!faceBoxes.isEmpty())
-    {
-        QPainter painter(&image);
-        painter.setRenderHint(QPainter::Antialiasing, false);
-        QPen facePen(QColor(46, 220, 135));
-        facePen.setWidth(3);
-        painter.setPen(facePen);
-        for (int index = 0; index < faceBoxes.size(); ++index)
-        {
-            const QRect box = faceBoxes.at(index).intersected(image.rect());
-            painter.drawRect(box);
-            const QRect badge(box.left(), qMax(0, box.top() - 24), 76, 22);
-            painter.fillRect(badge, QColor(20, 130, 85, 220));
-            painter.setPen(Qt::white);
-            painter.drawText(badge, Qt::AlignCenter,
-                             QStringLiteral("FACE %1").arg(index + 1));
-            painter.setPen(facePen);
-        }
-    }
-}
-#endif

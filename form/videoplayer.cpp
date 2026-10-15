@@ -456,7 +456,7 @@ void VideoPlayer::scanVideoFiles(bool selectLatest)
     }
 
     recordingStatusLabel->setText(recordingPaths.isEmpty()
-                                      ? QStringLiteral("暂无事件录像。触发视觉或传感器事件后将自动出现。")
+                                      ? QStringLiteral("暂无事件录像。触发画面变化事件后将自动出现。")
                                       : QStringLiteral("已发现 %1 段录像，最新录像排在最前。")
                                             .arg(recordingPaths.size()));
 

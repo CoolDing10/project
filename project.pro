@@ -48,27 +48,12 @@ message("============================================")
 # ============================================================
 # OpenCV 3.4.1 公共链接库
 #
-# x86 和 ARM 使用相同的 OpenCV 模块名称，
-# 区别只是具体 .so 文件所在目录不同。
+# 当前图像分析只使用图片读写和基础图像处理。
 # ============================================================
 
 OPENCV_LIBS = \
-    -lopencv_dnn \
-    -lopencv_ml \
-    -lopencv_objdetect \
-    -lopencv_shape \
-    -lopencv_stitching \
-    -lopencv_superres \
-    -lopencv_videostab \
-    -lopencv_calib3d \
-    -lopencv_features2d \
-    -lopencv_highgui \
-    -lopencv_videoio \
     -lopencv_imgcodecs \
-    -lopencv_video \
-    -lopencv_photo \
     -lopencv_imgproc \
-    -lopencv_flann \
     -lopencv_core
 
 
@@ -138,10 +123,6 @@ contains(QT_ARCH, arm) {
     # --------------------------------------------------------
 
     OPENCV_ROOT = $$PWD/lib/open_lib/opencv_3.4.1/arm_opencv
-    # dnn/objdetect 使用当前 i.MX6ULL SDK(GCC 5.3)重编译的兼容版本，
-    # 最高只依赖 GLIBCXX_3.4.21。core/imgproc 仍用完整原版，以保留
-    # calib3d 等现有模块依赖的 OpenCL 符号。
-    OPENCV_COMPAT_ROOT = $$PWD/lib/open_lib/opencv_3.4.1/arm_gcc53_compat
 
     INCLUDEPATH += $$OPENCV_ROOT/include
 
@@ -149,25 +130,9 @@ contains(QT_ARCH, arm) {
     # libopencv_*.so 开发链接名。若继续使用 -lopencv_xxx，链接器会
     # 错误选中 SDK sysroot 中的 OpenCV 3.1，造成 3.4.1 头文件与
     # 3.1 运行库 ABI 混用。这里显式指定项目随附的 3.4.1 完整文件。
-    # 兼容目录中的 dnn/objdetect 由 SDK 自带 GCC 5.3 构建，不能改回
-    # 原目录，否则 objdetect 会要求开发板不存在的 GLIBCXX_3.4.22。
     LIBS += \
-        $$OPENCV_COMPAT_ROOT/lib/libopencv_dnn.so.3.4.1 \
-        $$OPENCV_ROOT/lib/libopencv_ml.so.3.4.1 \
-        $$OPENCV_COMPAT_ROOT/lib/libopencv_objdetect.so.3.4.1 \
-        $$OPENCV_ROOT/lib/libopencv_shape.so.3.4.1 \
-        $$OPENCV_ROOT/lib/libopencv_stitching.so.3.4.1 \
-        $$OPENCV_ROOT/lib/libopencv_superres.so.3.4.1 \
-        $$OPENCV_ROOT/lib/libopencv_videostab.so.3.4.1 \
-        $$OPENCV_ROOT/lib/libopencv_calib3d.so.3.4.1 \
-        $$OPENCV_ROOT/lib/libopencv_features2d.so.3.4.1 \
-        $$OPENCV_ROOT/lib/libopencv_highgui.so.3.4.1 \
-        $$OPENCV_ROOT/lib/libopencv_videoio.so.3.4.1 \
         $$OPENCV_ROOT/lib/libopencv_imgcodecs.so.3.4.1 \
-        $$OPENCV_ROOT/lib/libopencv_video.so.3.4.1 \
-        $$OPENCV_ROOT/lib/libopencv_photo.so.3.4.1 \
         $$OPENCV_ROOT/lib/libopencv_imgproc.so.3.4.1 \
-        $$OPENCV_ROOT/lib/libopencv_flann.so.3.4.1 \
         $$OPENCV_ROOT/lib/libopencv_core.so.3.4.1
 
 

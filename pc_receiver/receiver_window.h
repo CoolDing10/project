@@ -108,7 +108,7 @@ private:
     void handleMqttMessage(const QByteArray &message, const QString &topic);
 
     // 通过 MQTT 向设备发布远程控制命令
-    // @param command 命令字符串（如 "start_capture", "snapshot" 等）
+    // @param command 命令字符串（如 "start_capture"、"stream_on" 等）
     // @param arguments 附加参数（JSON 对象，默认为空）
     void publishCommand(const QString &command,
                         const QJsonObject &arguments = QJsonObject());

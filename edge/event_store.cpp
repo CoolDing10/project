@@ -9,7 +9,7 @@
  * 表 monitoring_event 字段说明：
  *   id              — 自增主键
  *   device_id       — 设备标识（如 "imx6ull-001"）
- *   event_type      — 事件类型（如 "visual_motion", "face_detected"）
+ *   event_type      — 事件类型（当前为 "visual_motion"）
  *   severity        — 0=信息, 1=警告, 2=严重
  *   source          — 来源（如 "camera", "ap3216c", "icm20608", "operator"）
  *   message         — 事件描述

@@ -10,8 +10,3 @@ SOURCES += \
     $$PWD/vision_event_detector.cpp
 
 INCLUDEPATH += $$PWD
-
-DISTFILES += \
-    $$PWD/../opencv_src/face-dnn/deploy.prototxt \
-    $$PWD/../opencv_src/face-dnn/res10_300x300_ssd_iter_140000.caffemodel \
-    $$PWD/../opencv_src/face-dnn/README.md

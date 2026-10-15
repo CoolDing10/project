@@ -1,8 +1,7 @@
 # config
 
 FORMS += \
-    $$PWD/imx6ulltest.ui \
-    $$PWD/opencv.ui
+    $$PWD/imx6ulltest.ui
 
 HEADERS += \
     $$PWD/imx6ulltest.h \

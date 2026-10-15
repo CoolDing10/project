@@ -86,8 +86,7 @@ MainWidget::MainWidget(QWidget *parent)
  *   - "图像分析"页面额外包了一层 QScrollArea，因为 OpenCV 分析页内容较长、
  *     1024x600 屏幕放不下，需要滚动
  *
- * 旧版轮播图、独立人脸识别、音频播放器、MQTT Demo 和 SQLite 闹钟
- * 已从工程中移除；相关业务能力已经收敛到当前四个页面。
+ * 导航只保留当前项目实际使用的业务页面。
  */
 void MainWidget::registerPages()
 {
