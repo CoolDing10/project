@@ -16,8 +16,8 @@
  *   1. 标准容器格式（QMediaPlayer 模式）
  *      - 使用 Qt Multimedia 框架播放
  *      - 支持硬件加速解码（取决于平台）
- *   2. MJPEG 原始流格式（rawMjpegMode）
- *      - 由 TcpFrameSender 录制的 .mjpeg 文件
+ *   2. 旧版 MJPEG 原始流格式（rawMjpegMode）
+ *      - 兼容历史 .mjpeg 文件
  *      - 文件内容是连续的 JPEG 帧（FF D8 ... FF D9）
  *      - 使用 QTimer 逐帧解码并显示到 QLabel
  *
@@ -405,7 +405,7 @@ void VideoPlayer::refreshRecordings()
  * 扫描 data/recordings/ 目录，发现所有支持的录像文件。
  *
  * 支持的格式：
- *   标准容器：mp4, mkv, wmv, avi
+ *   H.264 裸码流和标准容器：h264, mp4, mkv, wmv, avi
  *   原始 MJPEG：.mjpeg, .mjpg
  *
  * 自动选择最新录像：
@@ -426,6 +426,7 @@ void VideoPlayer::scanVideoFiles(bool selectLatest)
     const QStringList filters = {
         QStringLiteral("*.mp4"), QStringLiteral("*.mkv"),
         QStringLiteral("*.wmv"), QStringLiteral("*.avi"),
+        QStringLiteral("*.h264"),
         QStringLiteral("*.mjpeg"), QStringLiteral("*.mjpg")};
     const QFileInfoList files = videoDirectory.entryInfoList(
         filters, QDir::Files, QDir::Time);

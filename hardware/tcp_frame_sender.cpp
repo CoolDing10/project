@@ -4,8 +4,6 @@
 // 引入 RTP 打包协议定义（分包头结构体、分包工具函数）
 #include "rtp_packet.h"
 
-// Qt 内存缓冲区类，用于在内存中构建 JPEG 数据
-#include <QBuffer>
 // Qt 数据流类，用于二进制序列化 TCP 帧头
 #include <QDataStream>
 // Qt 日期时间类，用于获取当前时间的毫秒级时间戳
@@ -134,6 +132,7 @@ TcpFrameSender::TcpFrameSender(QObject *parent)
       encoderPts(0),                                    // 编码器 PTS 从 0 开始
       sendingEnabled(false),                            // 默认不启用推流
       tcpTransport(false),                              // 默认使用 UDP 传输模式
+      forceNextKeyFrame(false),                         // 默认不强制关键帧
       codecContext(nullptr),                            // 编码器上下文初始为 nullptr（惰性初始化）
       codecFrame(nullptr),                              // 编码器输入帧初始为 nullptr
       codecPacket(nullptr),                             // 编码器输出包初始为 nullptr
@@ -412,8 +411,10 @@ bool TcpFrameSender::initializeEncoder(int width, int height, QString *error)
     av_dict_set(&options, "profile", "baseline", 0);
     // repeat_headers = "1"：在每个 IDR 帧前重复 SPS/PPS 头信息
     av_dict_set(&options, "repeat_headers", "1", 0);
-    // x264-params：额外的 x264 参数，repeat-headers 和禁用场景切换检测
-    av_dict_set(&options, "x264-params", "repeat-headers=1:scenecut=0", 0);
+    // x264-params：重复 SPS/PPS、禁用场景切换，并给每帧添加访问单元分隔符。
+    // AUD 让保存后的 Annex B 裸码流可以可靠地区分每一帧。
+    av_dict_set(&options, "x264-params",
+                "repeat-headers=1:scenecut=0:aud=1", 0);
     // 打开编码器，应用上述所有参数
     const int result = avcodec_open2(codecContext, codec, &options);
     // 释放选项字典（avcodec_open2 会复制需要的值，原字典不再需要）
@@ -544,6 +545,11 @@ bool TcpFrameSender::encodeFrame(const QImage &image, QByteArray *accessUnit,
               codecFrame->data, codecFrame->linesize);
     // 设置编码帧的 PTS（显示时间戳）
     codecFrame->pts = encoderPts++;
+    // 事件录像可能在推流中途开始。此时强制产生一个新的 IDR；配合
+    // repeat_headers，录像文件会从可独立解码的 SPS/PPS + IDR 开始。
+    codecFrame->pict_type = forceNextKeyFrame
+                                ? AV_PICTURE_TYPE_I
+                                : AV_PICTURE_TYPE_NONE;
     // 清空输出缓冲区
     accessUnit->clear();
     // 初始化关键帧标志为 false
@@ -619,6 +625,9 @@ bool TcpFrameSender::encodeFrame(const QImage &image, QByteArray *accessUnit,
             *error = QStringLiteral("编码器未产生 H.264 输出数据");
         return false;
     }
+    // 只有编码器确实输出关键帧后才清除请求，避免录像从 P 帧开始。
+    if (forceNextKeyFrame && *keyFrame)
+        forceNextKeyFrame = false;
     return true;
 }
 
@@ -677,24 +686,19 @@ bool TcpFrameSender::sendAccessUnit(const QByteArray &accessUnit, bool keyFrame,
     return true;
 }
 
-// 将图像以 MJPEG 格式写入录像文件
-// @param image 待写入的原始 QImage
+// 将已经编码好的 H.264 Annex B 访问单元写入录像文件
+// @param accessUnit 一帧 H.264 编码数据
 // @return true 写入成功或无录像文件（跳过），false 写入失败
-bool TcpFrameSender::writeRecordingFrame(const QImage &image)
+bool TcpFrameSender::writeRecordingFrame(const QByteArray &accessUnit)
 {
     // 如果录像文件未打开，无需写入，返回 true（不阻断推流流程）
     if (!recordingFile || !recordingFile->isOpen())
         return true;
-    // JPEG 编码后的字节数组
-    QByteArray jpeg;
-    // 创建内存缓冲区，用于 JPEG 编码的输出目标
-    QBuffer buffer(&jpeg);
-    // 打开缓冲区为只写模式，然后将图像以 JPEG 格式（质量 65%）编码写入缓冲区，最后写入文件
-    if (!buffer.open(QIODevice::WriteOnly) || !image.save(&buffer, "JPEG", 65) ||
-        recordingFile->write(jpeg) != jpeg.size())
+    if (accessUnit.isEmpty() ||
+        recordingFile->write(accessUnit) != accessUnit.size())
     {
         // 写入失败：发送错误信号
-        emit recordingError(QStringLiteral("MJPEG 录像写入失败：%1")
+        emit recordingError(QStringLiteral("H.264 录像写入失败：%1")
                                 .arg(recordingFile->errorString()));
         // 写入失败时自动停止录像
         stopRecording();
@@ -714,14 +718,6 @@ void TcpFrameSender::sendFrame(const QImage &image)
     {
         return;
     }
-    // 如果正在录像，先写入录像文件（MJPEG 格式）
-    if (recording)
-        writeRecordingFrame(image);
-    // 如果推流未启用，只需处理录像后返回
-    if (!sendingEnabled)
-    {
-        return;
-    }
     // 获取当前时间的毫秒级时间戳（用于接收端的帧同步）
     const qint64 timestampMs = QDateTime::currentMSecsSinceEpoch();
     // 编码后的 H.264 数据缓冲区
@@ -737,8 +733,19 @@ void TcpFrameSender::sendFrame(const QImage &image)
     {
         // 发送编码失败状态信息
         emit statusChanged(QStringLiteral("H.264 编码失败：%1").arg(error));
+        if (recording)
+        {
+            emit recordingError(QStringLiteral("H.264 录像编码失败：%1").arg(error));
+            stopRecording();
+        }
         return;
     }
+    // 同一个 H.264 编码结果直接写入录像，避免录像和推流重复编码。
+    if (recording)
+        writeRecordingFrame(encodedFrame);
+    // 仅录像时写盘完成即可，不进入网络发送路径。
+    if (!sendingEnabled)
+        return;
     // 根据传输模式选择发送方式：
     // TCP 模式 → sendTcpFrame    UDP 模式 → sendAccessUnit (RTP/UDP)
     const bool sent = tcpTransport
@@ -764,7 +771,7 @@ void TcpFrameSender::sendFrame(const QImage &image)
     }
 }
 
-// 开始录像：将视频帧以 MJPEG 格式写入文件
+// 开始录像：将视频帧编码成 H.264 Annex B 裸码流写入文件
 // @param filePath 录像文件的完整保存路径
 // @param durationMs 自动事件录像持续时间（毫秒），必须大于 0
 void TcpFrameSender::startRecording(const QString &filePath, int durationMs)
@@ -796,6 +803,8 @@ void TcpFrameSender::startRecording(const QString &filePath, int durationMs)
     }
     // 记录当前活跃的录像文件路径
     activeRecordingPath = filePath;
+    // 即使编码器正在用于网络推流，也让录像从新的关键帧开始。
+    forceNextKeyFrame = true;
     recordingStopTimer->start(durationMs);
     // 发送录像开始状态信号
     emit recordingStateChanged(true, filePath);

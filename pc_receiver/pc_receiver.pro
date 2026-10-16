@@ -12,7 +12,7 @@
 # 构建：在 pc_receiver 目录下执行 qmake pc_receiver.pro && make
 # ============================================================
 
-QT += core gui widgets network
+QT += core gui widgets network multimedia multimediawidgets
 
 CONFIG += c++11
 

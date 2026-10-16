@@ -201,11 +201,12 @@ void MediaArchiveServer::sendArchiveList()
     for (const QString &category : categories) {
         // 根据类别构造安全目录对象。
         const QDir directory(archiveDirectory(category));
-        // 抓拍支持常见静态图片，录像只允许本项目生成的MJPEG扩展名。
+        // 新录像统一为 H.264；保留旧 MJPEG 文件的下载兼容性。
         const QStringList filters = category == QLatin1String("snapshots")
                 ? QStringList{QStringLiteral("*.jpg"), QStringLiteral("*.jpeg"),
                               QStringLiteral("*.png"), QStringLiteral("*.bmp")}
-                : QStringList{QStringLiteral("*.mjpeg"), QStringLiteral("*.mjpg")};
+                : QStringList{QStringLiteral("*.h264"),
+                              QStringLiteral("*.mjpeg"), QStringLiteral("*.mjpg")};
         // 仅列出可读普通文件，并按照修改时间从新到旧排列。
         const QFileInfoList entries = directory.entryInfoList(
             filters, QDir::Files | QDir::Readable, QDir::Time);

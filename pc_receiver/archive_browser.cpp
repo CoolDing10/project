@@ -14,16 +14,20 @@
 #include <QLineEdit>
 #include <QListWidget>
 #include <QListWidgetItem>
+#include <QMediaContent>
+#include <QMediaPlayer>
 #include <QPixmap>
 #include <QPushButton>
 #include <QResizeEvent>
 #include <QSaveFile>
 #include <QSpinBox>
 #include <QStandardPaths>
+#include <QStackedWidget>
 #include <QTcpSocket>
 #include <QTimer>
 #include <QUrl>
 #include <QVBoxLayout>
+#include <QVideoWidget>
 
 namespace {
 const int CategoryRole = Qt::UserRole + 1;             // 列表项隐藏保存snapshots/recordings类别。
@@ -54,6 +58,9 @@ ArchiveBrowser::ArchiveBrowser(QWidget *parent)
       statusLabel(new QLabel(QStringLiteral("点击刷新，读取开发板中的抓拍和录像"), this)), // 状态提示。
       archiveList(new QListWidget(this)), // 文件清单控件。
       previewLabel(new QLabel(QStringLiteral("选择一张抓拍或一段录像"), this)), // 媒体预览控件。
+      previewStack(new QStackedWidget(this)), // 图片与 H.264 视频输出切换容器。
+      h264Player(new QMediaPlayer(this)), // H.264 录像播放器。
+      h264VideoOutput(new QVideoWidget(this)), // H.264 视频输出。
       mjpegPlaybackTimer(new QTimer(this)), // 录像逐帧播放定时器。
       mjpegFile(new QFile(this)), // 本地录像读取对象。
       requestKind(NoRequest), // 启动时网络状态为空闲。
@@ -79,6 +86,11 @@ ArchiveBrowser::ArchiveBrowser(QWidget *parent)
     previewLabel->setStyleSheet(QStringLiteral(
         "background:#05070a; color:#96a4b5; border:1px solid #354150; "
         "border-radius:7px;"));
+    h264VideoOutput->setStyleSheet(QStringLiteral("background:#05070a;"));
+    h264Player->setVideoOutput(h264VideoOutput);
+    previewStack->addWidget(previewLabel);
+    previewStack->addWidget(h264VideoOutput);
+    previewStack->setCurrentWidget(previewLabel);
 
     // 打开下载目录按钮只在构造函数内连接，无需保存为成员。
     QPushButton *openDirectoryButton = new QPushButton(
@@ -106,7 +118,7 @@ ArchiveBrowser::ArchiveBrowser(QWidget *parent)
     // content按2:3比例分配文件列表与媒体预览空间。
     QHBoxLayout *content = new QHBoxLayout();
     content->addWidget(listPanel, 2);
-    content->addWidget(previewLabel, 3);
+    content->addWidget(previewStack, 3);
 
     // 页面顶层采用“控制栏、状态栏、主体内容”的垂直结构。
     QVBoxLayout *layout = new QVBoxLayout(this);
@@ -467,7 +479,7 @@ QString ArchiveBrowser::downloadRoot() const
     return QDir(root).filePath(QStringLiteral("imx6ull_media"));
 }
 
-/** 停止旧预览，再按归档类别显示图片或启动MJPEG循环播放。 */
+/** 停止旧预览，再按归档类别显示图片或播放录像。 */
 void ArchiveBrowser::displayDownloadedFile(const QString &filePath,
                                            const QString &category)
 {
@@ -476,11 +488,13 @@ void ArchiveBrowser::displayDownloadedFile(const QString &filePath,
     // 若旧录像仍打开，先释放文件描述符。
     if (mjpegFile->isOpen())
         mjpegFile->close();
+    h264Player->stop();
     // 清除上一个MJPEG尚未组成完整JPEG的残留字节。
     mjpegBuffer.clear();
 
     // 抓拍文件由QImage直接解码并显示。
     if (category == QLatin1String("snapshots")) {
+        previewStack->setCurrentWidget(previewLabel);
         const QImage image(filePath);
         // 不支持或损坏的图片会产生空QImage。
         if (image.isNull()) {
@@ -491,7 +505,18 @@ void ArchiveBrowser::displayDownloadedFile(const QString &filePath,
         return;
     }
 
-    // 非抓拍类别按本项目生成的连续JPEG录像处理。
+    // 新版事件录像是 H.264 Annex B 裸码流，交给 Qt Multimedia 解码。
+    if (QFileInfo(filePath).suffix().compare(
+            QStringLiteral("h264"), Qt::CaseInsensitive) == 0) {
+        currentPreviewImage = QImage();
+        previewStack->setCurrentWidget(h264VideoOutput);
+        h264Player->setMedia(QMediaContent(QUrl::fromLocalFile(filePath)));
+        h264Player->play();
+        return;
+    }
+
+    // 旧版 .mjpeg/.mjpg 归档仍按连续 JPEG 录像处理。
+    previewStack->setCurrentWidget(previewLabel);
     mjpegFile->setFileName(filePath);
     // 本地文件无法打开时显示具体QFile错误。
     if (!mjpegFile->open(QIODevice::ReadOnly)) {
@@ -569,6 +594,7 @@ void ArchiveBrowser::displayImage(const QImage &image)
 {
     // 保存未缩放图像，窗口变化时可以从原图重新生成而不累计失真。
     currentPreviewImage = image;
+    previewStack->setCurrentWidget(previewLabel);
     // SmoothTransformation用于PC端高质量预览，性能压力远低于开发板。
     previewLabel->setPixmap(QPixmap::fromImage(image).scaled(
         previewLabel->size(), Qt::KeepAspectRatio, Qt::SmoothTransformation));
@@ -622,6 +648,7 @@ void ArchiveBrowser::resizeEvent(QResizeEvent *event)
     // 先让QWidget基类完成布局和默认尺寸事件处理。
     QWidget::resizeEvent(event);
     // 没有已显示媒体时无需执行缩放。
-    if (!currentPreviewImage.isNull())
+    if (previewStack->currentWidget() == previewLabel &&
+        !currentPreviewImage.isNull())
         displayImage(currentPreviewImage);
 }

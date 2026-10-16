@@ -106,10 +106,10 @@ private:
     // @return true 发送成功，false 发送失败
     bool sendAccessUnit(const QByteArray &accessUnit, bool keyFrame,
                         quint64 timestampUs);
-    // 将一帧图像以 JPEG 格式写入录像文件
-    // @param image 待写入的原始图像
+    // 将一帧已经编码好的 H.264 访问单元写入录像文件
+    // @param accessUnit 一帧 H.264 Annex B 数据
     // @return true 写入成功，false 写入失败
-    bool writeRecordingFrame(const QImage &image);
+    bool writeRecordingFrame(const QByteArray &accessUnit);
 
     // --- 网络相关成员 ---
     // UDP 套接字，用于 RTP/UDP 推流模式
@@ -120,7 +120,7 @@ private:
     QTimer *tcpReconnectTimer;
     // 录像停止定时器，达到指定时长后自动停止录像
     QTimer *recordingStopTimer;
-    // 录像文件对象，用于 MJPEG 格式录像的写入
+    // 录像文件对象，用于 H.264 Annex B 裸码流录像的写入
     QFile *recordingFile;
 
     // --- 服务器连接参数 ---
@@ -148,6 +148,8 @@ private:
     bool sendingEnabled;
     // 是否使用 TCP 传输模式（false 表示 UDP/RTP 模式）
     bool tcpTransport;
+    // 录像开始后强制下一编码帧成为 IDR，保证录像可独立解码
+    bool forceNextKeyFrame;
     // 当前活跃的录像文件路径
     QString activeRecordingPath;
 

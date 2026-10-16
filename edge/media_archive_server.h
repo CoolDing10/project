@@ -4,7 +4,7 @@
 #include <QByteArray>
 #include <QObject>
 
-class QFile;       // Qt文件对象：按块读取抓拍图片或MJPEG录像。
+class QFile;       // Qt文件对象：按块读取抓拍图片或录像。
 class QTcpServer;  // Qt TCP监听器：负责监听PC端发起的归档连接。
 class QTcpSocket;  // Qt TCP连接：表示当前唯一的PC归档客户端。
 

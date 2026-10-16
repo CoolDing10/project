@@ -5,16 +5,19 @@
 #include <QImage>
 #include <QWidget>
 
-class QFile;        // 顺序读取已经下载到电脑的MJPEG录像。
+class QFile;        // 顺序读取旧版 MJPEG 录像。
 class QLabel;       // 显示状态文本、表单标签和图片/录像画面。
 class QLineEdit;    // 输入开发板IPv4地址。
 class QListWidget;  // 展示开发板返回的抓拍与录像文件列表。
+class QMediaPlayer; // 播放新生成的 H.264 录像。
 class QPushButton;  // 刷新、下载以及打开目录按钮。
 class QResizeEvent; // 窗口缩放事件类型。
 class QSaveFile;    // 原子下载文件：成功commit前不会破坏同名正式文件。
 class QSpinBox;     // 输入归档TCP端口。
+class QStackedWidget; // 在图片/MJPEG预览和 H.264 播放画面之间切换。
 class QTcpSocket;   // 连接开发板8890媒体归档服务。
-class QTimer;       // 按固定间隔播放MJPEG中的下一JPEG帧。
+class QTimer;       // 按固定间隔播放旧版 MJPEG 中的下一 JPEG 帧。
+class QVideoWidget; // QMediaPlayer 的 H.264 视频输出控件。
 
 /* PC端抓拍/录像浏览器：从开发板8890端口读取列表并按需下载。 */
 class ArchiveBrowser final : public QWidget
@@ -58,7 +61,7 @@ private:
     enum RequestKind {
         NoRequest,   // 当前空闲，没有等待中的服务端响应。
         ListRequest, // 正在获取JSON归档列表。
-        FileRequest  // 正在下载一个图片或MJPEG文件。
+        FileRequest  // 正在下载一个图片或录像文件。
     };
 
     /**
@@ -89,7 +92,7 @@ private:
     /** @brief 返回~/Downloads/imx6ull_media；无下载目录时回退到用户主目录。 */
     QString downloadRoot() const;
 
-    /** @brief 根据类别把已下载文件作为静态图片或MJPEG录像显示。 */
+    /** @brief 根据类别把已下载文件作为静态图片或录像显示。 */
     void displayDownloadedFile(const QString &filePath,
                                const QString &category);
 
@@ -106,7 +109,10 @@ private:
     QPushButton *downloadButton;        // 发起当前文件的FileRequest。
     QLabel *statusLabel;                // 显示连接、下载进度和错误信息。
     QListWidget *archiveList;           // 保存服务端文件条目及其隐藏元数据。
-    QLabel *previewLabel;               // 显示抓拍图片或MJPEG当前帧。
+    QLabel *previewLabel;               // 显示抓拍图片或旧版 MJPEG 当前帧。
+    QStackedWidget *previewStack;       // 切换静态/MJPEG与 H.264 画面。
+    QMediaPlayer *h264Player;           // 播放下载后的 H.264 裸码流。
+    QVideoWidget *h264VideoOutput;      // H.264 播放画面输出。
     QTimer *mjpegPlaybackTimer;          // 每66ms推进一帧，约15 FPS。
     QFile *mjpegFile;                   // 当前打开的本地MJPEG录像。
 

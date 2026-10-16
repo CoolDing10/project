@@ -1043,7 +1043,7 @@ QString CameraStreamingPage::saveSnapshot(const QImage &image,
 /*
  * ===== createRecordingPath() — 生成录像文件路径 =====
  *
- * MJPEG 格式录像保存在 data/recordings 目录下。
+ * H.264 Annex B 裸码流录像保存在 data/recordings 目录下。
  * 注意：这里只生成路径，目录由 TcpFrameSender 在开始录像时创建。
  */
 QString CameraStreamingPage::createRecordingPath(const QString &eventType) const
@@ -1051,10 +1051,10 @@ QString CameraStreamingPage::createRecordingPath(const QString &eventType) const
     // 构建 data/recordings 目录路径。
     const QString directoryPath = QDir(QCoreApplication::applicationDirPath())      // 从 exe 所在目录。
                                       .filePath(QStringLiteral("data/recordings")); // 拼接 data/recordings 子目录。
-    // 返回完整文件路径：目录/时间戳_事件类型.mjpeg
+    // 返回完整文件路径：目录/时间戳_事件类型.h264
     // 注意：这里只生成路径字符串，目录由 TcpFrameSender::startRecording 在写入前创建。
     return QDir(directoryPath).filePath(                     // 规范化路径拼接。
-        QStringLiteral("%1_%2.mjpeg")                        // MJPEG 文件名模板。
+        QStringLiteral("%1_%2.h264")                         // H.264 文件名模板。
             .arg(QDateTime::currentDateTime().toString(      // %1 = 当前时间戳。
                      QStringLiteral("yyyyMMdd_HHmmss_zzz")), // 精确到毫秒。
                  eventType));                                // %2 = 事件类型。
@@ -1194,7 +1194,7 @@ void CameraStreamingPage::handleRecordingStateChanged(
         {
             QSettings settings;                                           // 创建 QSettings 写入对象。
             settings.setValue(QStringLiteral("edge/latestRecordingPath"), // 键名：最新录像路径。
-                              filePath);                                  // 值：刚保存的 MJPEG 路径。
+                              filePath);                                  // 值：刚保存的 H.264 路径。
             settings.sync();                                              // 立即刷盘（供 OpenCV 页面读取）。
         }
         currentRecordingPath.clear(); // 清空路径缓存。

@@ -5,7 +5,7 @@
  *
  * VideoPlayer 是"事件录像"导航页的实现。
  * 它自动扫描 data/recordings/ 目录下的录像文件，支持：
- *   - 标准容器格式 (mp4/mkv/avi/wmv)：使用 QMediaPlayer + QVideoWidget 播放
+ *   - H.264 裸码流和标准容器：使用 QMediaPlayer + QVideoWidget 播放
  *   - 原始 MJPEG 格式 (.mjpeg/.mjpg)：自定义解析播放（逐帧解析 JPEG 帧）
  *
  * 自动发现机制：
