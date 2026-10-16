@@ -1,6 +1,6 @@
 // 包含本类的头文件声明
 #include "receiver_window.h"
-// 引入抓拍与录像归档浏览器控件
+// 引入事件录像归档浏览器控件
 #include "archive_browser.h"
 // 引入 RTP 分包协议定义（帧重组、分包解析）
 #include "rtp_packet.h"
@@ -36,7 +36,7 @@
 #include <QResizeEvent>
 // Qt 数值输入框，用于输入端口号
 #include <QSpinBox>
-// Qt 选项卡控件，用于切换"实时监控"和"抓拍与录像"页面
+// Qt 选项卡控件，用于切换"实时监控"和"事件录像"页面
 #include <QTabWidget>
 // Qt TCP 服务器类，用于监听 TCP 推流连接
 #include <QTcpServer>
@@ -80,7 +80,7 @@ ReceiverWindow::ReceiverWindow(QWidget *parent)
       statusLabel(new QLabel(QStringLiteral("尚未监听"), this)),                              // 状态信息显示标签
       statisticsLabel(new QLabel(QStringLiteral("FPS: 0.0  带宽: 0.00 Mbps"), this)),         // 统计信息标签
       frameLabel(new QLabel(QStringLiteral("等待 H.264/TCP 或 H.264/RTP/UDP 视频流"), this)), // 视频显示标签
-      archiveBrowser(new ArchiveBrowser(this)),                                               // 创建归档浏览器控件（抓拍/录像管理）
+      archiveBrowser(new ArchiveBrowser(this)),                                               // 创建事件录像归档浏览器
       mqttClient(new QMqttClient(this)),                                                      // 创建 MQTT 客户端
       mqttHostEdit(new QLineEdit(QStringLiteral("192.168.10.100"), this)),                    // MQTT 服务器地址输入框（默认 IP）
       mqttPortSpinBox(new QSpinBox(this)),                                                    // MQTT 端口选择框
@@ -218,11 +218,11 @@ ReceiverWindow::ReceiverWindow(QWidget *parent)
     liveTab->setLayout(contentLayout);
 
     // === 选项卡控件 ===
-    // 创建 QTabWidget，包含"实时监控"和"抓拍与录像"两个页面
+    // 创建 QTabWidget，包含"实时监控"和"事件录像"两个页面
     QTabWidget *tabs = new QTabWidget(this);
     tabs->addTab(liveTab, QStringLiteral("实时监控"));
-    tabs->addTab(archiveBrowser, QStringLiteral("抓拍与录像"));
-    // 切换到"抓拍与录像"页面时自动刷新归档列表
+    tabs->addTab(archiveBrowser, QStringLiteral("事件录像"));
+    // 切换到"事件录像"页面时自动刷新归档列表
     connect(tabs, &QTabWidget::currentChanged, this, [this, tabs](int index)
             {
         if (tabs->widget(index) == archiveBrowser) archiveBrowser->refreshArchive(); });

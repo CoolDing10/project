@@ -94,6 +94,6 @@ void VisionEventDetector::analyzeFrame(const QImage &frame)
     {
         eventCooldownTimer.restart();
         consecutiveChangedFrames = 0;
-        emit visualMotionDetected(frame, changedRatio);
+        emit visualMotionDetected(changedRatio);
     }
 }

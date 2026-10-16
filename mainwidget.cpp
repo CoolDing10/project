@@ -110,7 +110,7 @@ void MainWidget::registerPages()
          */
         {QStringLiteral("图像分析"),
          QStringLiteral("OpenCV 图像分析"),
-         QStringLiteral("自动载入最新抓拍，也可手动选择图片进行算法测试"),
+         QStringLiteral("选择本地图片进行图像预处理与边缘检测"),
          [](QWidget *parent)
          {
              QScrollArea *scrollArea = new QScrollArea(parent);

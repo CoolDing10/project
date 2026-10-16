@@ -30,7 +30,7 @@
 #include <QVideoWidget>
 
 namespace {
-const int CategoryRole = Qt::UserRole + 1;             // 列表项隐藏保存snapshots/recordings类别。
+const int CategoryRole = Qt::UserRole + 1;             // 列表项隐藏保存recordings类别。
 const int NameRole = Qt::UserRole + 2;                 // 列表项隐藏保存服务端原始文件名。
 const int SizeRole = Qt::UserRole + 3;                 // 列表项隐藏保存服务端报告的文件大小。
 const qint64 MaximumListPayload = 8 * 1024 * 1024;     // 列表JSON最大8 MiB，防止异常响应耗尽内存。
@@ -55,9 +55,9 @@ ArchiveBrowser::ArchiveBrowser(QWidget *parent)
       archivePortSpinBox(new QSpinBox(this)), // 创建端口输入框。
       refreshButton(new QPushButton(QStringLiteral("刷新全部归档"), this)), // 列表请求按钮。
       downloadButton(new QPushButton(QStringLiteral("下载并查看"), this)), // 文件请求按钮。
-      statusLabel(new QLabel(QStringLiteral("点击刷新，读取开发板中的抓拍和录像"), this)), // 状态提示。
+      statusLabel(new QLabel(QStringLiteral("点击刷新，读取开发板中的事件录像"), this)), // 状态提示。
       archiveList(new QListWidget(this)), // 文件清单控件。
-      previewLabel(new QLabel(QStringLiteral("选择一张抓拍或一段录像"), this)), // 媒体预览控件。
+      previewLabel(new QLabel(QStringLiteral("选择一段事件录像"), this)), // 媒体预览控件。
       previewStack(new QStackedWidget(this)), // 图片与 H.264 视频输出切换容器。
       h264Player(new QMediaPlayer(this)), // H.264 录像播放器。
       h264VideoOutput(new QVideoWidget(this)), // H.264 视频输出。
@@ -174,11 +174,11 @@ void ArchiveBrowser::refreshArchive()
 /** 验证当前选择，并从列表项自定义角色中取出下载参数。 */
 void ArchiveBrowser::downloadSelected()
 {
-    // currentItem()返回用户当前选中的抓拍或录像条目。
+    // currentItem()返回用户当前选中的录像条目。
     QListWidgetItem *item = archiveList->currentItem();
     // 未选择时仅提示用户，不建立无意义的网络连接。
     if (!item) {
-        statusLabel->setText(QStringLiteral("请先选择一个抓拍或录像文件"));
+        statusLabel->setText(QStringLiteral("请先选择一个事件录像文件"));
         return;
     }
     // 服务端类别、文件名和显示大小均来自受控列表响应。
@@ -314,7 +314,7 @@ bool ArchiveBrowser::parseResponseHeader()
             resetTransfer();
             return false;
         }
-        // 按类别分别保存到imx6ull_media/snapshots或recordings。
+        // 事件录像统一保存到imx6ull_media/recordings。
         const QString directory = QDir(downloadRoot()).filePath(requestedCategory);
         // 目录不存在时递归创建；失败则不能继续接收文件。
         if (!QDir().mkpath(directory)) {
@@ -400,7 +400,7 @@ void ArchiveBrowser::completeRequest()
             // 提示最终路径，并立即加载刚下载的媒体。
             statusLabel->setText(QStringLiteral("已下载到电脑：%1")
                                  .arg(downloadedFilePath));
-            displayDownloadedFile(downloadedFilePath, requestedCategory);
+            displayDownloadedFile(downloadedFilePath);
         }
         // commit完成后QSaveFile对象不再使用。
         delete downloadFile;
@@ -445,13 +445,10 @@ void ArchiveBrowser::populateArchiveList(const QByteArray &payload)
         // ISODateWithMs与开发板生成格式一致，保留毫秒解析能力。
         const QDateTime modified = QDateTime::fromString(
             file.value(QStringLiteral("modified")).toString(), Qt::ISODateWithMs);
-        // 将协议类别翻译为用户界面的中文类型。
-        const QString kind = category == QLatin1String("snapshots")
-                ? QStringLiteral("抓拍") : QStringLiteral("录像");
         // 第一行显示类型和文件名，第二行显示大小和修改时间。
         QListWidgetItem *item = new QListWidgetItem(
-            QStringLiteral("[%1] %2\n%3  %4")
-                .arg(kind, name, readableSize(size),
+            QStringLiteral("[录像] %1\n%2  %3")
+                .arg(name, readableSize(size),
                      modified.toString(QStringLiteral("yyyy-MM-dd HH:mm:ss"))));
         // 自定义角色保存请求下载所需的原始数据，不从显示文本反向解析。
         item->setData(CategoryRole, category);
@@ -480,8 +477,7 @@ QString ArchiveBrowser::downloadRoot() const
 }
 
 /** 停止旧预览，再按归档类别显示图片或播放录像。 */
-void ArchiveBrowser::displayDownloadedFile(const QString &filePath,
-                                           const QString &category)
+void ArchiveBrowser::displayDownloadedFile(const QString &filePath)
 {
     // 切换媒体前停止定时器，避免它继续读取旧文件。
     mjpegPlaybackTimer->stop();
@@ -491,19 +487,6 @@ void ArchiveBrowser::displayDownloadedFile(const QString &filePath,
     h264Player->stop();
     // 清除上一个MJPEG尚未组成完整JPEG的残留字节。
     mjpegBuffer.clear();
-
-    // 抓拍文件由QImage直接解码并显示。
-    if (category == QLatin1String("snapshots")) {
-        previewStack->setCurrentWidget(previewLabel);
-        const QImage image(filePath);
-        // 不支持或损坏的图片会产生空QImage。
-        if (image.isNull()) {
-            previewLabel->setText(QStringLiteral("抓拍图片解码失败"));
-            return;
-        }
-        displayImage(image);
-        return;
-    }
 
     // 新版事件录像是 H.264 Annex B 裸码流，交给 Qt Multimedia 解码。
     if (QFileInfo(filePath).suffix().compare(

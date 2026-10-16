@@ -32,7 +32,7 @@
 // 网络与存储层
 #include "tcp_frame_sender.h"     // FFmpeg H.264 编码 + TCP/UDP 推流器
 #include "event_store.h"          // SQLite 事件存储
-#include "media_archive_server.h" // PC端抓拍/录像归档服务
+#include "media_archive_server.h" // PC端事件录像归档服务
 // 视觉检测层
 #include "vision_event_detector.h" // 画面变化检测
 
@@ -985,8 +985,7 @@ void CameraStreamingPage::handleAnalysisCompleted(const QImage &image,
  * 当连续多帧画面变化超过阈值时，VisionEventDetector 发出此信号。
  * 处理：记录事件到 SQLite + 添加到 UI 列表 + MQTT 推送 + 自动事件录像。
  */
-void CameraStreamingPage::handleVisualMotionDetected(const QImage &image,
-                                                     double changedRatio)
+void CameraStreamingPage::handleVisualMotionDetected(double changedRatio)
 {
     recordMonitoringEvent(                                 // 统一事件记录入口。
         QStringLiteral("visual_motion"),                   // 事件类型：画面运动。
@@ -994,50 +993,7 @@ void CameraStreamingPage::handleVisualMotionDetected(const QImage &image,
         QStringLiteral("camera"),                          // 事件来源：摄像头。
         QStringLiteral("检测到画面变化，变化像素比例 %1%") // 事件消息。
             .arg(changedRatio * 100.0, 0, 'f', 1),         // 插入变化百分比（1位小数）。
-        image,                                             // 事件附图（当前帧）。
         true);                                             // true = 触发自动录像。
-}
-
-/*
- * ===== saveSnapshot() — 将 QImage 保存为 JPEG 文件 =====
- *
- * 保存路径：<exe目录>/data/snapshots/<时间戳>_<事件类型>.jpg
- * JPEG 质量 80，在文件大小和画质之间取得平衡。
- * 返回保存的文件路径，失败返回空字符串。
- */
-QString CameraStreamingPage::saveSnapshot(const QImage &image,
-                                          const QString &eventType) const
-{
-    if (image.isNull())   // 无有效图像数据？
-        return QString(); // 返回空字符串表示保存失败。
-
-    // 创建 data/snapshots 目录（如果不存在）。
-    const QString directoryPath = QDir(QCoreApplication::applicationDirPath())     // 从 exe 所在目录出发。
-                                      .filePath(QStringLiteral("data/snapshots")); // 拼接 data/snapshots 子目录。
-    if (!QDir().mkpath(directoryPath))                                             // 递归创建目录（含所有父目录）？
-    {
-        qWarning() << "创建抓拍目录失败：" << directoryPath; // 目录创建失败日志。
-        return QString();                                    // 返回空字符串。
-    }
-
-    // 文件名格式：20240923_143052_123_visual_motion.jpg
-    //   yyyyMMdd_HHmmss_zzz = 年月日_时分秒_毫秒
-    const QString fileName = QStringLiteral("%1_%2.jpg")                          // 文件名模板。
-                                 .arg(QDateTime::currentDateTime().toString(      // %1 = 当前时间戳字符串。
-                                          QStringLiteral("yyyyMMdd_HHmmss_zzz")), // 精确到毫秒的格式。
-                                      eventType);                                 // %2 = 事件类型（如 visual_motion）。
-
-    // 拼接完整保存路径：目录 + 文件名。
-    const QString filePath = QDir(directoryPath).filePath(fileName); // 规范化路径拼接。
-
-    // 保存为 JPEG 格式，质量 80（在文件大小和画质之间平衡）。
-    if (!image.save(filePath, "JPEG", 80)) // QImage::save 返回 bool。
-    {
-        qWarning() << "保存事件抓拍失败：" << filePath; // 保存失败日志。
-        return QString();                               // 返回空字符串。
-    }
-    qInfo() << "事件抓拍已保存：" << filePath; // 成功日志。
-    return filePath;                           // 返回完整文件路径。
 }
 
 /*
@@ -1065,16 +1021,14 @@ QString CameraStreamingPage::createRecordingPath(const QString &eventType) const
  *
  * 这是系统中最核心的事件处理函数，所有告警/通知都经过这里。
  * 执行以下操作（按顺序）：
- *   1. 保存抓拍图片到 data/snapshots/
- *   2. 如果 requestRecording=true 且自动录像已开启 → 启动 10 秒事件录像
- *   3. 写入 SQLite 数据库（eventStore->appendEvent）
- *   4. 添加到 UI 事件列表（addEventToList）
- *   5. 通过 MQTT 推送到 PC 接收端（publishMqttJson）
+ *   1. 如果 requestRecording=true 且自动录像已开启 → 启动 10 秒事件录像
+ *   2. 写入 SQLite 数据库（eventStore->appendEvent）
+ *   3. 添加到 UI 事件列表（addEventToList）
+ *   4. 通过 MQTT 推送到 PC 接收端（publishMqttJson）
  */
 void CameraStreamingPage::recordMonitoringEvent(
     const QString &eventType, MonitoringEventSeverity severity,
-    const QString &source, const QString &message,
-    const QImage &eventImage, bool requestRecording)
+    const QString &source, const QString &message, bool requestRecording)
 {
     // ----- 步骤1：构建事件结构体 -----
     MonitoringEvent event;                                    // 栈上创建事件对象。
@@ -1084,7 +1038,6 @@ void CameraStreamingPage::recordMonitoringEvent(
     event.source = source;                                    // 来源组件（如 "camera"/"ap3216c"/"icm20608"）。
     event.message = message;                                  // 人类可读事件消息。
     event.createdAt = QDateTime::currentDateTime();           // 记录事件发生时间戳。
-    event.snapshotPath = saveSnapshot(eventImage, eventType); // 步骤2：保存抓拍图片并获得文件路径。
 
     // ----- 步骤2：事件自动录像逻辑 -----
     // 条件：请求录像 + 自动录像 CheckBox 已勾选 + 采集正在运行。
@@ -1119,7 +1072,6 @@ void CameraStreamingPage::recordMonitoringEvent(
     json.insert(QStringLiteral("severity"), int(event.severity));      // 严重等级（int 枚举）。
     json.insert(QStringLiteral("source"), event.source);               // 来源组件。
     json.insert(QStringLiteral("message"), event.message);             // 事件描述消息。
-    json.insert(QStringLiteral("snapshotPath"), event.snapshotPath);   // 抓拍图片路径。
     json.insert(QStringLiteral("recordingPath"), event.recordingPath); // 录像文件路径（可能为空）。
     json.insert(QStringLiteral("timestamp"),                           // 事件时间戳。
                 event.createdAt.toString(Qt::ISODateWithMs));          // ISO 8601 格式带毫秒。
@@ -1133,7 +1085,7 @@ void CameraStreamingPage::recordMonitoringEvent(
  * 新事件插入列表顶部（最近的事件在最上面）。
  * 超过 MaximumVisibleEvents(100) 条时，删除最旧的条目。
  * 每行显示：时间戳 [严重等级] 事件消息
- * Tooltip 显示：来源 / 抓拍路径 / 录像路径
+ * Tooltip 显示：来源 / 录像路径
  */
 void CameraStreamingPage::addEventToList(const MonitoringEvent &event)
 {
@@ -1151,14 +1103,11 @@ void CameraStreamingPage::addEventToList(const MonitoringEvent &event)
 
     item->setForeground(severityColor(event.severity)); // 根据严重等级设置文字颜色。
     // 设置 Tooltip（鼠标悬停显示详细信息）。
-    item->setToolTip(QStringLiteral("来源: %1\n抓拍: %2\n录像: %3") // Tooltip 模板。
-                         .arg(event.source,                         // %1 = 事件来源。
-                              event.snapshotPath.isEmpty()          // %2 = 抓拍路径。
-                                  ? QStringLiteral("无")            // 无抓拍 → "无"。
-                                  : event.snapshotPath,             // 有抓拍 → 显示路径。
-                              event.recordingPath.isEmpty()         // %3 = 录像路径。
-                                  ? QStringLiteral("无")            // 无录像 → "无"。
-                                  : event.recordingPath));          // 有录像 → 显示路径。
+    item->setToolTip(QStringLiteral("来源: %1\n录像: %2") // Tooltip 模板。
+                         .arg(event.source,                  // %1 = 事件来源。
+                              event.recordingPath.isEmpty()  // %2 = 录像路径。
+                                  ? QStringLiteral("无")    // 无录像 → "无"。
+                                  : event.recordingPath));   // 有录像 → 显示路径。
 
     // 插入到列表顶部（索引 0），最新事件在最上面。
     eventList->insertItem(0, item); // prepend 到 QListWidget。

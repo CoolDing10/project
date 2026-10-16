@@ -8,7 +8,7 @@
 class QFile;        // 顺序读取旧版 MJPEG 录像。
 class QLabel;       // 显示状态文本、表单标签和图片/录像画面。
 class QLineEdit;    // 输入开发板IPv4地址。
-class QListWidget;  // 展示开发板返回的抓拍与录像文件列表。
+class QListWidget;  // 展示开发板返回的事件录像文件列表。
 class QMediaPlayer; // 播放新生成的 H.264 录像。
 class QPushButton;  // 刷新、下载以及打开目录按钮。
 class QResizeEvent; // 窗口缩放事件类型。
@@ -19,7 +19,7 @@ class QTcpSocket;   // 连接开发板8890媒体归档服务。
 class QTimer;       // 按固定间隔播放旧版 MJPEG 中的下一 JPEG 帧。
 class QVideoWidget; // QMediaPlayer 的 H.264 视频输出控件。
 
-/* PC端抓拍/录像浏览器：从开发板8890端口读取列表并按需下载。 */
+/* PC端事件录像浏览器：从开发板8890端口读取列表并按需下载。 */
 class ArchiveBrowser final : public QWidget
 {
     Q_OBJECT // 启用Qt信号槽以及元对象信息。
@@ -35,7 +35,7 @@ public:
     void setDeviceAddress(const QString &address);
 
 public slots:
-    /** @brief 请求开发板重新扫描并返回全部抓拍和录像元数据。 */
+    /** @brief 请求开发板重新扫描并返回全部事件录像元数据。 */
     void refreshArchive();
 
 protected:
@@ -93,8 +93,7 @@ private:
     QString downloadRoot() const;
 
     /** @brief 根据类别把已下载文件作为静态图片或录像显示。 */
-    void displayDownloadedFile(const QString &filePath,
-                               const QString &category);
+    void displayDownloadedFile(const QString &filePath);
 
     /** @brief 保存当前图像，并按previewLabel尺寸等比平滑缩放。 */
     void displayImage(const QImage &image);
@@ -109,7 +108,7 @@ private:
     QPushButton *downloadButton;        // 发起当前文件的FileRequest。
     QLabel *statusLabel;                // 显示连接、下载进度和错误信息。
     QListWidget *archiveList;           // 保存服务端文件条目及其隐藏元数据。
-    QLabel *previewLabel;               // 显示抓拍图片或旧版 MJPEG 当前帧。
+    QLabel *previewLabel;               // 显示旧版 MJPEG 当前帧或播放提示。
     QStackedWidget *previewStack;       // 切换静态/MJPEG与 H.264 画面。
     QMediaPlayer *h264Player;           // 播放下载后的 H.264 裸码流。
     QVideoWidget *h264VideoOutput;      // H.264 播放画面输出。
@@ -117,7 +116,7 @@ private:
     QFile *mjpegFile;                   // 当前打开的本地MJPEG录像。
 
     RequestKind requestKind;            // 当前请求状态机枚举值。
-    QString requestedCategory;          // 当前文件类别：snapshots或recordings。
+    QString requestedCategory;          // 当前文件类别：recordings。
     QString requestedName;              // 当前下载的服务端文件名。
     qint64 requestedSize;               // 当前载荷总长度，用于计算下载百分比。
     bool responseHeaderParsed;          // 是否已经从TCP流中剥离完整JSON头。

@@ -58,7 +58,7 @@ private slots:
     void visionDetectionToggled(bool enabled);
     void mqttMonitoringToggled(bool enabled);
     void handleAnalysisCompleted(const QImage &image, double changedRatio);
-    void handleVisualMotionDetected(const QImage &image, double changedRatio);
+    void handleVisualMotionDetected(double changedRatio);
     void publishHeartbeat();
     void handleRecordingStateChanged(bool active, const QString &filePath);
     void handleRecordingError(const QString &message);
@@ -70,13 +70,11 @@ private:
     void loadSettings();
     void saveSettings() const;
     void displayPreviewImage(const QImage &image);
-    QString saveSnapshot(const QImage &image, const QString &eventType) const;
     QString createRecordingPath(const QString &eventType) const;
     void recordMonitoringEvent(const QString &eventType,
                                MonitoringEventSeverity severity,
                                const QString &source,
                                const QString &message,
-                               const QImage &eventImage,
                                bool requestRecording);
     void addEventToList(const MonitoringEvent &event);
     void publishMqttJson(const QString &topic, const QJsonObject &object);

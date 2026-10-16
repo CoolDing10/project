@@ -20,7 +20,7 @@ public slots:
 
 signals:
     void analysisCompleted(QImage frame, double changedRatio);
-    void visualMotionDetected(QImage frame, double changedRatio);
+    void visualMotionDetected(double changedRatio);
 
 private:
     QImage previousGrayFrame;

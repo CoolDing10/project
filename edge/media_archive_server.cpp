@@ -180,47 +180,37 @@ void MediaArchiveServer::processRequest(const QByteArray &requestLine)
 QString MediaArchiveServer::archiveDirectory(const QString &category) const
 {
     // 白名单限制是后续路径安全校验的第一层。
-    if (category != QLatin1String("snapshots") &&
-            category != QLatin1String("recordings"))
+    if (category != QLatin1String("recordings"))
         return QString();
     // 数据目录与可执行文件并列，符合开发板/opt/project/bin部署结构。
     return QDir(QCoreApplication::applicationDirPath())
             .filePath(QStringLiteral("data/%1").arg(category));
 }
 
-/** 扫描两类归档文件并生成紧凑JSON列表响应。 */
+/** 扫描事件录像并生成紧凑JSON列表响应。 */
 void MediaArchiveServer::sendArchiveList()
 {
     // files最终包含所有可下载文件的类别、名称、大小和修改时间。
     QJsonArray files;
-    // 服务端只暴露业务所需的两个固定目录。
-    const QStringList categories = {
-        QStringLiteral("snapshots"), QStringLiteral("recordings")};
-
-    // 分别扫描抓拍目录和录像目录。
-    for (const QString &category : categories) {
-        // 根据类别构造安全目录对象。
-        const QDir directory(archiveDirectory(category));
-        // 新录像统一为 H.264；保留旧 MJPEG 文件的下载兼容性。
-        const QStringList filters = category == QLatin1String("snapshots")
-                ? QStringList{QStringLiteral("*.jpg"), QStringLiteral("*.jpeg"),
-                              QStringLiteral("*.png"), QStringLiteral("*.bmp")}
-                : QStringList{QStringLiteral("*.h264"),
-                              QStringLiteral("*.mjpeg"), QStringLiteral("*.mjpg")};
-        // 仅列出可读普通文件，并按照修改时间从新到旧排列。
-        const QFileInfoList entries = directory.entryInfoList(
-            filters, QDir::Files | QDir::Readable, QDir::Time);
-        // 把每个QFileInfo转换成与PC端约定的JSON对象。
-        for (const QFileInfo &entry : entries) {
-            QJsonObject item;
-            item.insert(QStringLiteral("category"), category);
-            item.insert(QStringLiteral("name"), entry.fileName());
-            // JSON数字使用double；对本项目媒体文件大小仍能保持整数精度。
-            item.insert(QStringLiteral("size"), double(entry.size()));
-            item.insert(QStringLiteral("modified"),
-                        entry.lastModified().toString(Qt::ISODateWithMs));
-            files.append(item);
-        }
+    const QString category = QStringLiteral("recordings");
+    const QDir directory(archiveDirectory(category));
+    // 新录像统一为 H.264；保留旧 MJPEG 文件的下载兼容性。
+    const QStringList filters = {QStringLiteral("*.h264"),
+                                 QStringLiteral("*.mjpeg"),
+                                 QStringLiteral("*.mjpg")};
+    // 仅列出可读普通文件，并按照修改时间从新到旧排列。
+    const QFileInfoList entries = directory.entryInfoList(
+        filters, QDir::Files | QDir::Readable, QDir::Time);
+    // 把每个QFileInfo转换成与PC端约定的JSON对象。
+    for (const QFileInfo &entry : entries) {
+        QJsonObject item;
+        item.insert(QStringLiteral("category"), category);
+        item.insert(QStringLiteral("name"), entry.fileName());
+        // JSON数字使用double；对本项目媒体文件大小仍能保持整数精度。
+        item.insert(QStringLiteral("size"), double(entry.size()));
+        item.insert(QStringLiteral("modified"),
+                    entry.lastModified().toString(Qt::ISODateWithMs));
+        files.append(item);
     }
 
     // 使用根对象包装数组，为以后增加设备ID等字段保留扩展空间。

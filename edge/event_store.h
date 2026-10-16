@@ -10,7 +10,7 @@
  *   monitoring_event(
  *     id INTEGER PRIMARY KEY AUTOINCREMENT,
  *     device_id TEXT, event_type TEXT, severity INTEGER,
- *     source TEXT, message TEXT, snapshot_path TEXT,
+ *     source TEXT, message TEXT,
  *     recording_path TEXT, created_at TEXT, acknowledged INTEGER)
  *
  * 使用独立的 SQLite 连接名（基于 this 指针生成），

@@ -39,7 +39,6 @@ struct MonitoringEvent
     MonitoringEventSeverity severity = MonitoringEventSeverity::Information; // 严重程度
     QString source;                                                          // 事件来源（当前为 camera）
     QString message;                                                         // 人类可读的描述文字
-    QString snapshotPath;                                                    // 事件抓拍图片路径（可能为空）
     QString recordingPath;                                                   // 事件录像文件路径（可能为空）
     QDateTime createdAt;                                                     // 事件发生时间
     bool acknowledged = false;                                               // 是否已确认（UI 未使用，保留用于未来扩展）

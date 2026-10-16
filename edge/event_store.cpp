@@ -13,7 +13,6 @@
  *   severity        — 0=信息, 1=警告, 2=严重
  *   source          — 来源（如 "camera", "ap3216c", "icm20608", "operator"）
  *   message         — 事件描述
- *   snapshot_path   — 关联抓拍图片路径
  *   recording_path  — 关联录像文件路径
  *   created_at      — ISO 8601 格式时间戳（含毫秒）
  *   acknowledged    — 是否已确认（保留字段）
@@ -83,7 +82,6 @@ bool EventStore::initialize()
         "severity INTEGER NOT NULL, "
         "source TEXT NOT NULL, "
         "message TEXT NOT NULL, "
-        "snapshot_path TEXT, "
         "recording_path TEXT, "
         "created_at TEXT NOT NULL, "
         "acknowledged INTEGER NOT NULL DEFAULT 0)");
@@ -120,15 +118,14 @@ bool EventStore::appendEvent(MonitoringEvent *event)
     QSqlQuery query(database);
     query.prepare(QStringLiteral(
         "INSERT INTO monitoring_event ("
-        "device_id, event_type, severity, source, message, snapshot_path, "
+        "device_id, event_type, severity, source, message, "
         "recording_path, created_at, acknowledged) "
-        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"));
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?)"));
     query.addBindValue(event->deviceId);
     query.addBindValue(event->eventType);
     query.addBindValue(int(event->severity));
     query.addBindValue(event->source);
     query.addBindValue(event->message);
-    query.addBindValue(event->snapshotPath);
     query.addBindValue(event->recordingPath);
     query.addBindValue(event->createdAt.toString(Qt::ISODateWithMs));
     query.addBindValue(event->acknowledged ? 1 : 0);
@@ -160,7 +157,7 @@ QVector<MonitoringEvent> EventStore::recentEvents(int maximumCount) const
     QSqlQuery query(database);
     query.prepare(QStringLiteral(
         "SELECT id, device_id, event_type, severity, source, message, "
-        "snapshot_path, recording_path, created_at, acknowledged "
+        "recording_path, created_at, acknowledged "
         "FROM monitoring_event ORDER BY id DESC LIMIT ?"));
     query.addBindValue(maximumCount);
     if (!query.exec())
@@ -180,11 +177,10 @@ QVector<MonitoringEvent> EventStore::recentEvents(int maximumCount) const
         event.severity = MonitoringEventSeverity(query.value(3).toInt());
         event.source = query.value(4).toString();
         event.message = query.value(5).toString();
-        event.snapshotPath = query.value(6).toString();
-        event.recordingPath = query.value(7).toString();
-        event.createdAt = QDateTime::fromString(query.value(8).toString(),
+        event.recordingPath = query.value(6).toString();
+        event.createdAt = QDateTime::fromString(query.value(7).toString(),
                                                 Qt::ISODateWithMs);
-        event.acknowledged = query.value(9).toBool();
+        event.acknowledged = query.value(8).toBool();
         events.append(event);
     }
     return events;

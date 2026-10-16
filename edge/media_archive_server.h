@@ -4,15 +4,15 @@
 #include <QByteArray>
 #include <QObject>
 
-class QFile;       // Qt文件对象：按块读取抓拍图片或录像。
+class QFile;       // Qt文件对象：按块读取事件录像。
 class QTcpServer;  // Qt TCP监听器：负责监听PC端发起的归档连接。
 class QTcpSocket;  // Qt TCP连接：表示当前唯一的PC归档客户端。
 
 /*
  * 开发板媒体归档服务。
  *
- * 实时 JPEG 视频仍使用 8888 端口；本服务单独监听 8890，避免抓拍或录像
- * 下载占用实时视频连接。请求使用单行 JSON，响应为“单行 JSON 头 + 定长
+ * 实时 H.264 视频使用 8888 端口；本服务单独监听 8890，避免录像下载占用
+ * 实时视频连接。请求使用单行 JSON，响应为“单行 JSON 头 + 定长
  * 载荷”。录像按 64 KiB 分块发送，不把整个文件读入内存。
  */
 class MediaArchiveServer final : public QObject
@@ -63,12 +63,12 @@ private:
      */
     void processRequest(const QByteArray &requestLine);
 
-    /** @brief 扫描抓拍和录像目录，并向PC返回JSON文件清单。 */
+    /** @brief 扫描事件录像目录，并向PC返回JSON文件清单。 */
     void sendArchiveList();
 
     /**
      * @brief 校验请求路径并启动一个定长文件下载。
-     * @param category 归档类别，只允许snapshots或recordings。
+     * @param category 归档类别，只允许recordings。
      * @param name 不含目录部分的文件名，用于阻止目录穿越攻击。
      */
     void startFileTransfer(const QString &category, const QString &name);

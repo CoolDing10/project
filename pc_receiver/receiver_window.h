@@ -20,7 +20,7 @@
 // Qt 窗口基类，ReceiverWindow 继承自 QWidget
 #include <QWidget>
 
-// 前向声明：抓拍与录像归档浏览器控件
+// 前向声明：事件录像归档浏览器控件
 class ArchiveBrowser;
 // 前向声明：Qt 标签控件
 class QLabel;
@@ -139,7 +139,7 @@ private:
     QLabel *statisticsLabel;
     // 视频帧显示标签
     QLabel *frameLabel;
-    // 抓拍与录像归档浏览器控件
+    // 事件录像归档浏览器控件
     ArchiveBrowser *archiveBrowser;
 
     // ==================== MQTT 相关成员 ====================
