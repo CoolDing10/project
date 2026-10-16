@@ -1,47 +1,44 @@
 /*
- * ============================================================================
- * monitoring_event.h — 监控事件数据模型
- * ============================================================================
+ * monitoring_event.h — 边缘监控事件的公共数据模型
  *
- * 定义监控事件的数据结构和严重程度枚举。
- * 被 EventStore(SQLite)、MQTT 推送、事件列表 UI 三者共用。
- *
- * 当前事件类型：visual_motion（画面变化检测）。
+ * CameraStreamingPage 生成该结构，EventStore 将它保存到 SQLite，
+ * 同时页面会把同一份数据转换为 UI 列表项和 MQTT JSON。
+ * 当前实际事件类型只有 visual_motion（画面变化）。
  */
-#ifndef MONITORING_EVENT_H
-#define MONITORING_EVENT_H
+#ifndef MONITORING_EVENT_H // 防止本头文件在同一编译单元中被重复展开。
+#define MONITORING_EVENT_H // 定义头文件保护宏。
 
-#include <QDateTime>
-#include <QString>
+#include <QDateTime> // QDateTime 保存事件发生时间，并可转换为 ISO 8601 字符串。
+#include <QString>   // QString 保存设备编号、事件类型、消息和录像路径。
 
-/*
- * 监控事件严重程度：
- *   Information — 信息
- *   Warning     — 警告
- *   Critical    — 严重
- */
+/** 事件严重程度；枚举值会以整数形式写入 SQLite 和 MQTT。 */
 enum class MonitoringEventSeverity
 {
-    Information = 0,
-    Warning = 1,
-    Critical = 2
+    Information = 0, // 普通信息，不代表故障或危险。
+    Warning = 1,     // 警告事件；当前画面变化事件使用该级别。
+    Critical = 2     // 严重事件，为以后扩展更高等级告警保留。
 };
 
-/*
- * 一条监控事件的完整记录。
- * 存储在 SQLite 数据库 monitoring_event 表中。
- */
+/** 一条完整监控事件；字段与数据库 monitoring_event 表一一对应。 */
 struct MonitoringEvent
 {
-    qint64 id = -1;                                                          // 数据库自增 ID（-1 表示尚未入库）
-    QString deviceId;                                                        // 设备标识（如 "imx6ull-001"）
-    QString eventType;                                                       // 事件类型（当前为 visual_motion）
-    MonitoringEventSeverity severity = MonitoringEventSeverity::Information; // 严重程度
-    QString source;                                                          // 事件来源（当前为 camera）
-    QString message;                                                         // 人类可读的描述文字
-    QString recordingPath;                                                   // 事件录像文件路径（可能为空）
-    QDateTime createdAt;                                                     // 事件发生时间
-    bool acknowledged = false;                                               // 是否已确认（UI 未使用，保留用于未来扩展）
+    qint64 id = -1; // SQLite 自增主键；-1 表示对象还没有成功写入数据库。
+
+    QString deviceId; // 产生事件的设备编号，例如 imx6ull-001。
+
+    QString eventType; // 稳定的机器可读事件类型；当前值为 visual_motion。
+
+    MonitoringEventSeverity severity = MonitoringEventSeverity::Information; // 事件等级，默认是普通信息。
+
+    QString source; // 事件来源模块；当前画面变化检测使用 camera。
+
+    QString message; // 面向用户的事件说明，例如变化像素所占百分比。
+
+    QString recordingPath; // 关联的 H.264 事件录像路径；未录像时为空。
+
+    QDateTime createdAt; // 事件发生时间；数据库中保存为带毫秒的 ISO 8601 文本。
+
+    bool acknowledged = false; // 是否已确认；当前 UI 尚未使用，默认未确认。
 };
 
-#endif // MONITORING_EVENT_H
+#endif // MONITORING_EVENT_H：结束头文件保护。

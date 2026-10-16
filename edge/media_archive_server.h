@@ -1,105 +1,114 @@
-#ifndef MEDIA_ARCHIVE_SERVER_H
-#define MEDIA_ARCHIVE_SERVER_H
-
-#include <QByteArray>
-#include <QObject>
-
-class QFile;       // Qt文件对象：按块读取事件录像。
-class QTcpServer;  // Qt TCP监听器：负责监听PC端发起的归档连接。
-class QTcpSocket;  // Qt TCP连接：表示当前唯一的PC归档客户端。
-
 /*
- * 开发板媒体归档服务。
+ * media_archive_server.h — 开发板事件录像归档服务声明
  *
- * 实时 H.264 视频使用 8888 端口；本服务单独监听 8890，避免录像下载占用
- * 实时视频连接。请求使用单行 JSON，响应为“单行 JSON 头 + 定长
- * 载荷”。录像按 64 KiB 分块发送，不把整个文件读入内存。
+ * 实时 H.264 推流使用 8888 端口；本服务默认使用 8890 端口，专门处理：
+ *   1. PC 查询开发板上有哪些事件录像；
+ *   2. PC 下载指定事件录像。
+ *
+ * 请求格式：一行 JSON，以换行符结束。
+ * 响应格式：一行 JSON 头 + payloadSize 指定长度的载荷。
+ * 大文件按 64 KiB 分块读取，避免一次性把整个录像装入内存。
  */
-class MediaArchiveServer final : public QObject
+#ifndef MEDIA_ARCHIVE_SERVER_H // 防止本头文件被重复包含。
+#define MEDIA_ARCHIVE_SERVER_H // 定义头文件保护宏。
+
+#include <QByteArray> // 保存尚未组成完整一行 JSON 的 TCP 请求字节。
+#include <QObject>    // 提供对象线程归属、信号和槽机制。
+
+class QFile;      // 前向声明文件对象；实现文件中才需要完整定义。
+class QTcpServer; // 前向声明 TCP 监听器；负责监听 PC 归档连接。
+class QTcpSocket; // 前向声明单个 TCP 客户端连接。
+
+class MediaArchiveServer final : public QObject // final 禁止继承；QObject 支持移入归档线程。
 {
-    Q_OBJECT // 启用Qt元对象能力，使本类可以声明信号和槽。
+    Q_OBJECT // 启用 Qt 元对象系统，使跨线程槽调用和状态信号生效。
 
 public:
     /**
-     * @brief 创建媒体归档服务器对象，但此时还不会占用网络端口。
-     * @param parent Qt父对象；父对象析构时会自动回收本对象。
+     * 只初始化成员状态，不立即创建套接字或占用端口。
+     * @param parent Qt 父对象；项目传 nullptr，之后将对象移动到归档工作线程。
      */
     explicit MediaArchiveServer(QObject *parent = nullptr);
 
 public slots:
     /**
-     * @brief 创建QTcpServer并开始监听归档下载端口。
-     * @param port TCP监听端口；默认8890，与8888实时视频端口相互独立。
+     * 在当前所属线程中创建 QTcpServer、QFile 并开始监听。
+     * @param port 归档服务 TCP 端口，默认值 8890。
      */
     void initialize(quint16 port = 8890);
 
-    /** @brief 停止当前传输、关闭客户端并停止监听端口。 */
+    /** 终止当前下载、关闭客户端连接并停止 TCP 监听。 */
     void stop();
 
 signals:
     /**
-     * @brief 将服务启动、停止或错误信息通知UI线程。
-     * @param status 可直接显示或打印的中文状态文本。
+     * 把启动、停止或监听错误状态送到页面线程。
+     * @param status 可以直接显示或记录的中文状态文本。
      */
     void statusChanged(QString status);
 
 private slots:
-    /** @brief 接收等待队列中的新连接，并让最新连接成为当前客户端。 */
+    /** 取出 QTcpServer 等待队列中的连接，并配置当前客户端。 */
     void acceptConnection();
 
-    /** @brief 累积客户端字节，读取以换行符结尾的一条JSON请求。 */
+    /** 累积 TCP 字节，找到换行符后取出一条完整 JSON 请求。 */
     void readRequest();
 
-    /** @brief 在Qt发送缓冲区有空间时继续分块写入归档文件。 */
+    /** 在套接字发送缓冲区有空间时，继续读取并排队下一批文件数据。 */
     void continueFileTransfer();
 
-    /** @brief 清理已经断开的客户端以及未完成传输的状态。 */
+    /** 当前客户端断开后，释放套接字并复位请求和文件传输状态。 */
     void clientDisconnected();
 
 private:
     /**
-     * @brief 解析并分发一条完整请求。
-     * @param requestLine 不包含末尾换行符的紧凑JSON字节串。
+     * 解析一行 JSON，并分发 list 或 download 命令。
+     * @param requestLine 不包含换行符的 UTF-8 JSON 字节。
      */
     void processRequest(const QByteArray &requestLine);
 
-    /** @brief 扫描事件录像目录，并向PC返回JSON文件清单。 */
+    /** 扫描 data/recordings 并向 PC 返回录像元数据 JSON。 */
     void sendArchiveList();
 
     /**
-     * @brief 校验请求路径并启动一个定长文件下载。
-     * @param category 归档类别，只允许recordings。
-     * @param name 不含目录部分的文件名，用于阻止目录穿越攻击。
+     * 验证请求路径、打开录像并开始定长文件传输。
+     * @param category 文件类别；当前白名单只允许 recordings。
+     * @param name 录像的纯文件名，不允许包含目录或 ../。
      */
     void startFileTransfer(const QString &category, const QString &name);
 
-    /** @brief 向客户端返回失败响应并结束连接。 */
+    /**
+     * 返回统一错误响应并结束本次单请求连接。
+     * @param message 写入日志和响应 JSON 的具体错误说明。
+     */
     void sendError(const QString &message);
 
     /**
-     * @brief 写入一行JSON响应头，接收端据此确定后续载荷边界。
-     * @param type 响应类型，例如list或file。
-     * @param payloadSize 紧随响应头之后的二进制载荷字节数。
-     * @param name 文件下载时携带的原始文件名；列表响应可为空。
+     * 写入以换行符结束的成功响应 JSON 头。
+     * @param type 响应类型；当前为 list 或 file。
+     * @param payloadSize JSON 头之后二进制载荷的精确字节数。
+     * @param name 下载响应中的原始文件名；列表响应保持空字符串。
      */
-    void sendResponseHeader(const QString &type, qint64 payloadSize,
+    void sendResponseHeader(const QString &type,
+                            qint64 payloadSize,
                             const QString &name = QString());
 
     /**
-     * @brief 将受信任的类别转换为开发板上的归档目录。
-     * @return 合法类别对应的绝对/可解析目录；非法类别返回空字符串。
+     * 把业务类别映射到可执行程序目录下的数据目录。
+     * @param category 客户端请求的类别字符串。
+     * @return recordings 对应目录；类别不在白名单中则返回空字符串。
      */
     QString archiveDirectory(const QString &category) const;
 
-    /** @brief 主动关闭当前连接并将所有请求、文件传输状态复位。 */
+    /** 主动终止当前连接和文件传输，并清空协议状态。 */
     void closeClient();
 
-    QTcpServer *server;               // 端口监听器，只在initialize()中创建一次。
-    QTcpSocket *client;               // 当前PC客户端；协议设计为单客户端串行请求。
-    QFile *transferFile;              // 当前正在下载的文件，避免整文件一次性载入内存。
-    QByteArray requestBuffer;         // TCP接收缓存，用来处理请求被拆成多个数据包的情况。
-    qint64 transferBytesRemaining;    // 本次响应尚未排入TCP发送缓冲区的字节数。
-    bool transferQueuedCompletely;    // true表示文件内容已全部交给QTcpSocket等待发送。
+    QTcpServer *server;            // 8890 端口监听器；initialize() 中创建一次。
+    QTcpSocket *client;            // 当前唯一 PC 客户端；新连接会替换旧连接。
+    QFile *transferFile;           // 当前正在读取的事件录像文件；对象在多次下载间复用。
+    QByteArray requestBuffer;      // TCP 半包缓存；保存还没有读到换行符的请求字节。
+    qint64 transferBytesRemaining; // 文件载荷中尚未交给 QTcpSocket 的字节数。
+    bool transferQueuedCompletely; // true 表示完整载荷已进入 Qt 网络发送队列。
 };
 
-#endif // MEDIA_ARCHIVE_SERVER_H
+#endif // MEDIA_ARCHIVE_SERVER_H：结束头文件保护。

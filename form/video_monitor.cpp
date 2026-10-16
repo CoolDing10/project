@@ -26,9 +26,9 @@
  *     └── analysisFrameReady → VisionEventDetector::analyzeFrame() [独立线程]
  *   事件 → EventStore(SQLite) + 自动事件录像 + MQTT push
  */
-#include "video_monitor.h"
+#include "video_monitor.h" // 声明 CameraStreamingPage 页面类及其信号、槽和成员变量。
 
-#include "capture_thread.h" // V4L2 摄像头采集线程
+#include "capture_thread.h" // 声明 CaptureThread，负责从 V4L2 摄像头持续取得图像帧。
 // 网络与存储层
 #include "tcp_frame_sender.h"     // FFmpeg H.264 编码 + TCP/UDP 推流器
 #include "event_store.h"          // SQLite 事件存储
@@ -37,43 +37,43 @@
 #include "vision_event_detector.h" // 画面变化检测
 
 // MQTT 通信（需要 qtmqtt 模块）
-#include <mqtt/qmqttclient.h>
+#include <mqtt/qmqttclient.h> // 提供 QMqttClient、MQTT 连接状态和消息收发接口。
 
 // Qt Widgets：UI 控件
-#include <QCheckBox>
-#include <QComboBox>
-#include <QCoreApplication>
-#include <QDateTime>
-#include <QDebug>
-#include <QDir>
-#include <QFileInfo>
-#include <QFormLayout>
-#include <QFrame>
-#include <QGroupBox>
-#include <QHBoxLayout>
+#include <QCheckBox>        // 提供可勾选的功能开关控件。
+#include <QComboBox>        // 提供 TCP/UDP 传输方式下拉选择框。
+#include <QCoreApplication> // 用于取得程序可执行文件所在目录。
+#include <QDateTime>        // 用于生成事件时间戳和录像文件名。
+#include <QDebug>           // 提供 qInfo()、qWarning() 日志输出。
+#include <QDir>             // 用于安全地拼接录像目录和文件路径。
+#include <QFileInfo>        // 用于从完整录像路径中提取文件名。
+#include <QFormLayout>      // 提供“标签—输入控件”形式的表单布局。
+#include <QFrame>           // 提供滚动区域边框样式枚举 QFrame::NoFrame。
+#include <QGroupBox>        // 提供带标题的功能分组容器。
+#include <QHBoxLayout>      // 提供水平方向的控件布局。
 // Qt JSON 处理
-#include <QJsonDocument>
-#include <QJsonObject>
-#include <QLabel>
-#include <QLineEdit>
-#include <QListWidget>
-#include <QMetaObject>
-#include <QPixmap>
-#include <QPushButton>
-#include <QResizeEvent>
-#include <QScrollArea>
-#include <QSettings>
-#include <QSignalBlocker>
-#include <QSpinBox>
-#include <QTimer>
-#include <QVBoxLayout>
+#include <QJsonDocument>  // 负责 QByteArray 与 JSON 文档之间的序列化和解析。
+#include <QJsonObject>    // 表示 MQTT 消息中使用的 JSON 键值对象。
+#include <QLabel>         // 显示预览画面和各项文字状态。
+#include <QLineEdit>      // 输入推流服务器和 MQTT 服务器地址。
+#include <QListWidget>    // 显示最近发生的监控事件列表。
+#include <QMetaObject>    // 提供跨线程 invokeMethod() 调用。
+#include <QPixmap>        // 将 QImage 转为 QLabel 可显示的像素图。
+#include <QPushButton>    // 提供摄像头采集启停按钮。
+#include <QResizeEvent>   // 描述页面尺寸变化事件。
+#include <QScrollArea>    // 让右侧控制面板在小屏幕上可以滚动。
+#include <QSettings>      // 持久化服务器地址、端口和检测阈值。
+#include <QSignalBlocker> // 临时阻止控件发出信号，避免程序修改状态时递归触发槽。
+#include <QSpinBox>       // 输入端口号和运动检测阈值。
+#include <QTimer>         // 实现 MQTT 心跳和断线重连定时任务。
+#include <QVBoxLayout>    // 提供垂直方向的控件布局。
 
 /*
  * ===== 匿名命名空间：系统常量与辅助函数 =====
  * 匿名命名空间中的内容仅在当前 .cpp 文件中可见（相当于 C 中的 static 函数/变量）。
  * linker 不会导出这些符号，避免命名冲突。
  */
-namespace
+namespace // 匿名命名空间使下面的常量和辅助函数只对本实现文件可见。
 {
     /*
      * ===== 事件与告警阈值常量 =====
@@ -82,24 +82,24 @@ namespace
 
     // 事件触发时自动录像 10 秒（由 TcpFrameSender 的定时器控制停止）
     // 10000 ms = 10 秒
-    const int EventRecordingDurationMs = 10000;
+    const int EventRecordingDurationMs = 10000; // int 常量，单位为毫秒，作为 startRecording 的录像时长参数。
     // UI 事件列表最多保留 100 条，超出的旧记录自动删除，防止内存无限增长
-    const int MaximumVisibleEvents = 100;
+    const int MaximumVisibleEvents = 100; // int 常量，限制 QListWidget 中保留的最大事件条数。
     /*
      * severityText() — 将事件严重等级枚举转换为 UI 可显示的中文文本
      * 参数 severity：MonitoringEventSeverity 枚举值
      * 返回对应的中文字符串
      */
-    QString severityText(MonitoringEventSeverity severity)
+    QString severityText(MonitoringEventSeverity severity) // severity 是待转换的事件等级，返回对应中文文本。
     {
         switch (severity) // 根据枚举值分支
         {
-        case MonitoringEventSeverity::Critical:
+        case MonitoringEventSeverity::Critical: // 严重事件分支。
             return QStringLiteral("严重"); // 需要立即关注
-        case MonitoringEventSeverity::Warning:
+        case MonitoringEventSeverity::Warning: // 警告事件分支。
             return QStringLiteral("警告"); // 需要关注
-        case MonitoringEventSeverity::Information:
-        default:
+        case MonitoringEventSeverity::Information: // 普通信息事件分支。
+        default:                                   // 未知枚举值也按普通信息处理，保证函数一定返回文本。
             return QStringLiteral("信息"); // 常规通知
         }
     }
@@ -112,16 +112,16 @@ namespace
      *   Warning      → 橙色 #ffaa33（需要关注）
      *   Information  → 蓝色 #55ccff（常规通知）
      */
-    QColor severityColor(MonitoringEventSeverity severity)
+    QColor severityColor(MonitoringEventSeverity severity) // severity 是待映射的等级，返回 UI 使用的文字颜色。
     {
         switch (severity) // 根据枚举值分支
         {
-        case MonitoringEventSeverity::Critical:
+        case MonitoringEventSeverity::Critical: // 严重事件使用红色。
             return QColor(QStringLiteral("#ff5555")); // 红色
-        case MonitoringEventSeverity::Warning:
+        case MonitoringEventSeverity::Warning: // 警告事件使用橙色。
             return QColor(QStringLiteral("#ffaa33")); // 橙色
-        case MonitoringEventSeverity::Information:
-        default:
+        case MonitoringEventSeverity::Information: // 普通信息使用蓝色。
+        default:                                   // 未知等级也使用信息颜色，避免返回无效 QColor。
             return QColor(QStringLiteral("#55ccff")); // 蓝色
         }
     }
@@ -143,7 +143,7 @@ namespace
  *   所有指针初始化为 nullptr，确保在构造函数中途失败时析构安全。
  *   基本类型初始化为明确的默认状态。
  */
-CameraStreamingPage::CameraStreamingPage(QWidget *parent)
+CameraStreamingPage::CameraStreamingPage(QWidget *parent) // parent 指向父控件，由 Qt 父子对象机制管理本页面寿命。
     : QWidget(parent),                       // 调用 QWidget 基类构造函数
                                              // ---- UI 控件初始化为 nullptr（确保构造中途失败时析构安全）----
       cameraPreviewLabel(nullptr),           // 摄像头实时预览 QLabel
@@ -194,16 +194,16 @@ CameraStreamingPage::CameraStreamingPage(QWidget *parent)
  *   3. 停视觉、归档和网络工作线程（消费者）
  *   4. 最后释放事件数据库
  */
-CameraStreamingPage::~CameraStreamingPage()
+CameraStreamingPage::~CameraStreamingPage() // 页面销毁时依次停止生产者、消费者和外部连接。
 {
     saveSettings(); // 保存 CheckBox、IP、端口等配置到 QSettings
     // 停所有定时器
-    if (heartbeatTimer)
+    if (heartbeatTimer) // 指针非空才可调用定时器方法，兼容构造未完全结束的情况。
         heartbeatTimer->stop(); // 停止 MQTT 心跳定时器
-    if (mqttReconnectTimer)
+    if (mqttReconnectTimer) // 指针非空时停止尚未触发的重连任务。
         mqttReconnectTimer->stop(); // 停止 MQTT 重连定时器
     // 断 MQTT 连接
-    if (mqttClient && mqttClient->state() != QMqttClient::Disconnected)
+    if (mqttClient && mqttClient->state() != QMqttClient::Disconnected) // 客户端存在且尚未断开时才发送断开请求。
         mqttClient->disconnectFromHost(); // 主动断开 MQTT 连接
 
     // 停止采集线程（先停采集，再处置消费线程，避免生产者向已死的消费者发信号）
@@ -211,13 +211,13 @@ CameraStreamingPage::~CameraStreamingPage()
     cameraCaptureThread->wait();                   // ② 阻塞等待 run() 完全结束
 
     // 停止视觉检测线程
-    if (visionWorkerThread->isRunning())
+    if (visionWorkerThread->isRunning()) // 仅对仍在运行的视觉线程执行 quit()+wait()。
     {
         visionWorkerThread->quit(); // 请求退出事件循环
         visionWorkerThread->wait(); // 等待线程结束
     }
     // 停止媒体归档服务线程
-    if (archiveWorkerThread && archiveWorkerThread->isRunning())
+    if (archiveWorkerThread && archiveWorkerThread->isRunning()) // 归档对象已创建且线程仍运行时执行同步停止。
     {
         QMetaObject::invokeMethod(archiveServer, "stop",         // 跨线程同步调用 stop() 方法
                                   Qt::BlockingQueuedConnection); // 阻塞直到目标线程执行完毕
@@ -225,7 +225,7 @@ CameraStreamingPage::~CameraStreamingPage()
         archiveWorkerThread->wait();                             // 等待线程退出
     }
     // 停止网络推流线程（跨线程同步调用 stop，确保资源安全释放）
-    if (networkWorkerThread->isRunning())
+    if (networkWorkerThread->isRunning()) // 仅在线程运行时跨线程停止发送器并等待退出。
     {
         QMetaObject::invokeMethod(frameSender, "stop",           // 跨线程同步调用 stop() 方法
                                   Qt::BlockingQueuedConnection); // 阻塞直到目标线程执行完毕
@@ -258,59 +258,59 @@ CameraStreamingPage::~CameraStreamingPage()
  *   3. mqttGroup      — MQTT 连接配置与状态
  *   4. eventGroup     — 最近事件列表
  */
-void CameraStreamingPage::initializeUi()
+void CameraStreamingPage::initializeUi() // 创建页面控件、设置样式，并建立控件的父子对象与布局关系。
 {
     // ===== 页面基础样式（暗色主题样式表） =====
     setObjectName(QStringLiteral("edgeMonitoringPage"));               // 设置对象名（CSS 选择器使用）
     setStyleSheet(QStringLiteral(                                      // 设置暗色主题全局样式表
         "#edgeMonitoringPage { background: #1f1f22; color: #f5f7fa; }" // 页面背景深灰色
-        "#edgeControlPanel, #edgeControlScrollArea, "
-        "#edgeControlScrollArea > QWidget > QWidget { background: #1f1f22; }"
+        "#edgeControlPanel, #edgeControlScrollArea, "                  // 选择右侧控制面板和滚动区域，
+        "#edgeControlScrollArea > QWidget > QWidget { background: #1f1f22; }" // 统一其背景色，避免露出默认浅色底。
         "QGroupBox { background: #29292e; color: #f5f7fa; " // GroupBox 深灰色背景
-        "border: 1px solid #68686f; border-radius: 6px; "
-        "margin-top: 12px; padding: 12px 6px 6px 6px; font-weight: 600; }"
-        "QGroupBox::title { subcontrol-origin: margin; left: 9px; "
-        "padding: 0 4px; color: #ffffff; }"
+        "border: 1px solid #68686f; border-radius: 6px; "              // 设置分组边框和圆角，
+        "margin-top: 12px; padding: 12px 6px 6px 6px; font-weight: 600; }" // 留出标题空间并使用较粗字体。
+        "QGroupBox::title { subcontrol-origin: margin; left: 9px; "    // 定位分组标题，
+        "padding: 0 4px; color: #ffffff; }"                            // 设置标题内边距和白色文字。
         "QLabel { color: #eef0f3; background: transparent; }" // 标签浅色文字
-        "QLabel:disabled { color: #aeb3ba; }"
-        "QCheckBox { color: #eef0f3; spacing: 8px; background: transparent; }"
-        "QCheckBox:disabled { color: #aeb3ba; }"
+        "QLabel:disabled { color: #aeb3ba; }"                          // 禁用标签使用较暗文字。
+        "QCheckBox { color: #eef0f3; spacing: 8px; background: transparent; }" // 设置复选框文字、间距和透明背景。
+        "QCheckBox:disabled { color: #aeb3ba; }"                       // 禁用复选框使用灰色文字。
         "QCheckBox::indicator { width: 24px; height: 24px; }" // 复选框指示器放大（适合触摸屏）
-        "QCheckBox::indicator:unchecked { background: #202126; "
-        "border: 2px solid #d9dde3; border-radius: 4px; }"
-        "QCheckBox::indicator:unchecked:hover { background: #30343a; "
-        "border-color: #55b7ff; }"
-        "QCheckBox::indicator:unchecked:disabled { background: #33343a; "
-        "border-color: #858a91; }"
-        "QPushButton { min-height: 34px; border-radius: 6px; background: #e8e8e8; "
-        "color: #202020; padding: 3px 8px; }"
+        "QCheckBox::indicator:unchecked { background: #202126; "       // 未勾选指示器使用深色底，
+        "border: 2px solid #d9dde3; border-radius: 4px; }"             // 配浅色边框和圆角。
+        "QCheckBox::indicator:unchecked:hover { background: #30343a; " // 鼠标悬停时提高背景亮度，
+        "border-color: #55b7ff; }"                                    // 并用蓝色边框提示可点击。
+        "QCheckBox::indicator:unchecked:disabled { background: #33343a; " // 禁用且未勾选时使用灰色底，
+        "border-color: #858a91; }"                                    // 边框也降低亮度。
+        "QPushButton { min-height: 34px; border-radius: 6px; background: #e8e8e8; " // 设置按钮最小高度、圆角和浅色底，
+        "color: #202020; padding: 3px 8px; }"                          // 配深色文字和内边距。
         "QPushButton:checked { background: #d9534f; color: white; }" // 按下状态红色
-        "QPushButton:disabled { background: #44444a; color: #bfc3c8; }"
-        "QLineEdit, QSpinBox { min-height: 28px; background: #ffffff; "
-        "color: #17191c; border: 1px solid #85858b; border-radius: 3px; }"
-        "QLineEdit:disabled, QSpinBox:disabled { background: #d7d7da; "
-        "color: #55585d; }"
-        "QListWidget { background: #151515; color: #f5f5f5; "
-        "border: 1px solid #68686f; }"
-        "#previewPanel { background: #151a21; border: 1px solid #303a47; "
+        "QPushButton:disabled { background: #44444a; color: #bfc3c8; }" // 禁用按钮使用深灰背景和灰色文字。
+        "QLineEdit, QSpinBox { min-height: 28px; background: #ffffff; "  // 输入控件保持足够触摸高度和白色底，
+        "color: #17191c; border: 1px solid #85858b; border-radius: 3px; }" // 配深色文字、边框和小圆角。
+        "QLineEdit:disabled, QSpinBox:disabled { background: #d7d7da; " // 禁用输入控件切换为浅灰底，
+        "color: #55585d; }"                                           // 使用灰色文字表示不可编辑。
+        "QListWidget { background: #151515; color: #f5f5f5; "         // 事件列表使用黑色底和浅色文字，
+        "border: 1px solid #68686f; }"                                // 并添加灰色边框。
+        "#previewPanel { background: #151a21; border: 1px solid #303a47; " // 预览面板使用蓝灰背景与边框，
         "border-radius: 9px; }" // 预览面板深蓝灰色
-        "#previewTitle { color: #f5f8fb; font-size: 15px; font-weight: 600; }"
-        "#previewHint { color: #8291a3; font-size: 11px; }"
+        "#previewTitle { color: #f5f8fb; font-size: 15px; font-weight: 600; }" // 预览标题使用较大加粗浅色字。
+        "#previewHint { color: #8291a3; font-size: 11px; }"            // 预览提示使用较小的低对比度文字。
         /* 仅放大右侧控制区滚动条，适合 1024x600 触摸屏操作。 */
-        "#edgeControlScrollArea QScrollBar:vertical { "
-        "background: #202126; width: 22px; margin: 2px; "
-        "border: 1px solid #454952; border-radius: 9px; }"
-        "#edgeControlScrollArea QScrollBar::handle:vertical { "
-        "background: #8f98a6; min-height: 76px; margin: 2px; "
-        "border: 1px solid #b7c0cc; border-radius: 7px; }"
-        "#edgeControlScrollArea QScrollBar::handle:vertical:hover, "
-        "#edgeControlScrollArea QScrollBar::handle:vertical:pressed { "
-        "background: #48a9e6; border-color: #82cdf7; }"
-        "#edgeControlScrollArea QScrollBar::add-line:vertical, "
-        "#edgeControlScrollArea QScrollBar::sub-line:vertical { height: 0; }"
-        "#edgeControlScrollArea QScrollBar::add-page:vertical, "
-        "#edgeControlScrollArea QScrollBar::sub-page:vertical { "
-        "background: transparent; }"));
+        "#edgeControlScrollArea QScrollBar:vertical { "                 // 选择控制区的竖直滚动条，
+        "background: #202126; width: 22px; margin: 2px; "               // 加宽轨道以适合触摸操作，
+        "border: 1px solid #454952; border-radius: 9px; }"              // 并设置边框与圆角。
+        "#edgeControlScrollArea QScrollBar::handle:vertical { "         // 选择滚动条滑块，
+        "background: #8f98a6; min-height: 76px; margin: 2px; "          // 保证滑块足够大且与轨道留间距，
+        "border: 1px solid #b7c0cc; border-radius: 7px; }"              // 设置滑块边框和圆角。
+        "#edgeControlScrollArea QScrollBar::handle:vertical:hover, "    // 鼠标悬停或
+        "#edgeControlScrollArea QScrollBar::handle:vertical:pressed { " // 按住滑块时，
+        "background: #48a9e6; border-color: #82cdf7; }"                 // 改为蓝色突出交互反馈。
+        "#edgeControlScrollArea QScrollBar::add-line:vertical, "        // 选择滚动条的增加按钮和
+        "#edgeControlScrollArea QScrollBar::sub-line:vertical { height: 0; }" // 减少按钮，并隐藏两端箭头。
+        "#edgeControlScrollArea QScrollBar::add-page:vertical, "        // 选择滑块两侧的页面区域，
+        "#edgeControlScrollArea QScrollBar::sub-page:vertical { "       // 同时覆盖增加和减少方向，
+        "background: transparent; }"));                                // 使用透明背景并结束样式字符串。
 
     // ===== 摄像头预览区域（左侧主画面） =====
     cameraPreviewLabel = new QLabel(QStringLiteral("等待采集画面"), this); // 创建预览 QLabel
@@ -320,8 +320,8 @@ void CameraStreamingPage::initializeUi()
     cameraPreviewLabel->setSizePolicy(QSizePolicy::Expanding,              // 水平方向可扩展
                                       QSizePolicy::Expanding);             // 垂直方向可扩展
     cameraPreviewLabel->setStyleSheet(                                     // 预览区域深色背景
-        "#cameraPreview { background: #05070a; color: #8793a3; "
-        "border: 1px solid #26313d; border-radius: 6px; }");
+        "#cameraPreview { background: #05070a; color: #8793a3; "       // 预览区使用接近黑色的背景和灰蓝提示文字，
+        "border: 1px solid #26313d; border-radius: 6px; }");            // 添加边框与圆角并结束局部样式。
 
     // ===== 右侧控制面板容器 =====
     QWidget *controlPanel = new QWidget(this);                       // 控制面板父容器
@@ -331,24 +331,24 @@ void CameraStreamingPage::initializeUi()
     controlLayout->setSpacing(10);                                   // 组件间距
 
     // ===== GroupBox 1: TCP/UDP 推流配置 =====
-    QGroupBox *streamGroup = new QGroupBox(QStringLiteral("实时视频推流配置"), controlPanel);
+    QGroupBox *streamGroup = new QGroupBox(QStringLiteral("实时视频推流配置"), controlPanel); // 推流参数分组，父对象为控制面板。
     QFormLayout *streamLayout = new QFormLayout(streamGroup);                                // 表单布局（标签-输入框）
-    streamTransportComboBox = new QComboBox(streamGroup);
-    streamTransportComboBox->addItem(QStringLiteral("H.264/TCP（可靠传输）"), QStringLiteral("tcp"));
-    streamTransportComboBox->addItem(QStringLiteral("H.264/RTP/UDP（低延迟）"), QStringLiteral("udp"));
+    streamTransportComboBox = new QComboBox(streamGroup); // 传输协议选择框，每项同时保存显示文字和内部协议值。
+    streamTransportComboBox->addItem(QStringLiteral("H.264/TCP（可靠传输）"), QStringLiteral("tcp")); // 添加可靠的 TCP 选项，用户数据为 "tcp"。
+    streamTransportComboBox->addItem(QStringLiteral("H.264/RTP/UDP（低延迟）"), QStringLiteral("udp")); // 添加低延迟 UDP 选项，用户数据为 "udp"。
     serverAddressEdit = new QLineEdit(QStringLiteral("192.168.10.100"), streamGroup);        // IP 输入框（默认值）
     serverPortSpinBox = new QSpinBox(streamGroup);                                           // 端口选择器
     serverPortSpinBox->setRange(1, 65535);                                                   // 端口范围 1-65535
     serverPortSpinBox->setValue(8888);                                                       // 默认端口 8888
     connectionStatusLabel = new QLabel(QStringLiteral("实时推流未开启"), streamGroup);         // 发送状态显示
     connectionStatusLabel->setWordWrap(true);                                                // 允许自动换行
-    streamLayout->addRow(QStringLiteral("传输方式"), streamTransportComboBox);
+    streamLayout->addRow(QStringLiteral("传输方式"), streamTransportComboBox); // 把协议标签和下拉框加入表单。
     streamLayout->addRow(QStringLiteral("服务器IP"), serverAddressEdit);                     // 添加 IP 行
     streamLayout->addRow(QStringLiteral("端口"), serverPortSpinBox);                         // 添加端口行
     streamLayout->addRow(QStringLiteral("连接状态"), connectionStatusLabel);                 // 添加状态行
 
     // ===== GroupBox 2: 监控控制 =====
-    QGroupBox *monitoringGroup = new QGroupBox(QStringLiteral("监控控制"), controlPanel);
+    QGroupBox *monitoringGroup = new QGroupBox(QStringLiteral("监控控制"), controlPanel); // 核心采集、分析与录像开关分组。
     QVBoxLayout *monitoringLayout = new QVBoxLayout(monitoringGroup);                            // 垂直布局
     startCaptureButton = new QPushButton(QStringLiteral("开始采集摄像头数据"), monitoringGroup); // 采集按钮
     startCaptureButton->setCheckable(true);                                                      // 按钮可切换状态（按下/弹起）
@@ -357,16 +357,16 @@ void CameraStreamingPage::initializeUi()
     visionDetectionCheckBox = new QCheckBox(QStringLiteral("视觉变化检测"), monitoringGroup);    // 运动检测
     automaticRecordingCheckBox = new QCheckBox(QStringLiteral("事件自动录像"), monitoringGroup); // 自动录像
     // 运动检测阈值 SpinBox
-    motionThresholdSpinBox = new QSpinBox(monitoringGroup);
+    motionThresholdSpinBox = new QSpinBox(monitoringGroup); // 变化比例阈值输入框，数值单位为百分比。
     motionThresholdSpinBox->setRange(1, 80);                 // 阈值范围 1%-80%
     motionThresholdSpinBox->setValue(12);                    // 默认阈值 12%
     motionThresholdSpinBox->setSuffix(QStringLiteral(" %")); // 后缀显示 "%"
     // 状态标签
     visionStatusLabel = new QLabel(QStringLiteral("视觉检测已关闭"), // 运动检测状态
-                                   monitoringGroup);
+                                   monitoringGroup);                    // 父对象设为监控控制分组。
     visionStatusLabel->setWordWrap(true);                          // 允许换行
     recordingStatusLabel = new QLabel(QStringLiteral("事件录像未启动"), // 录像状态
-                                      monitoringGroup);
+                                      monitoringGroup);                  // 父对象设为监控控制分组。
     recordingStatusLabel->setWordWrap(true); // 允许换行
     // 按顺序添加到布局
     monitoringLayout->addWidget(startCaptureButton);        // 采集按钮
@@ -375,14 +375,14 @@ void CameraStreamingPage::initializeUi()
     monitoringLayout->addWidget(visionDetectionCheckBox);   // 运动检测
     QFormLayout *thresholdLayout = new QFormLayout();       // 阈值子布局
     thresholdLayout->addRow(QStringLiteral("画面变化阈值"), // 阈值行
-                            motionThresholdSpinBox);
+                            motionThresholdSpinBox);         // 将百分比输入框作为该行的字段控件。
     monitoringLayout->addLayout(thresholdLayout);            // 添加阈值子布局
     monitoringLayout->addWidget(automaticRecordingCheckBox); // 自动录像
     monitoringLayout->addWidget(visionStatusLabel);          // 运动状态
     monitoringLayout->addWidget(recordingStatusLabel);       // 录像状态
 
     // ===== GroupBox 3: MQTT 设备管理 =====
-    QGroupBox *mqttGroup = new QGroupBox(QStringLiteral("MQTT设备管理"), controlPanel);
+    QGroupBox *mqttGroup = new QGroupBox(QStringLiteral("MQTT设备管理"), controlPanel); // MQTT 地址、连接开关和状态分组。
     QFormLayout *mqttLayout = new QFormLayout(mqttGroup);                       // 表单布局
     mqttHostEdit = new QLineEdit(QStringLiteral("192.168.10.100"), mqttGroup);  // MQTT 服务器 IP
     mqttPortSpinBox = new QSpinBox(mqttGroup);                                  // MQTT 端口
@@ -397,7 +397,7 @@ void CameraStreamingPage::initializeUi()
     mqttLayout->addRow(mqttStatusLabel);                                        // 状态行
 
     // ===== GroupBox 4: 最近事件列表 =====
-    QGroupBox *eventGroup = new QGroupBox(QStringLiteral("最近事件"), controlPanel);
+    QGroupBox *eventGroup = new QGroupBox(QStringLiteral("最近事件"), controlPanel); // 最近事件列表的容器分组。
     QVBoxLayout *eventLayout = new QVBoxLayout(eventGroup); // 垂直布局
     eventList = new QListWidget(eventGroup);                // 事件列表控件
     eventList->setMinimumHeight(150);                       // 最小高度 150px
@@ -426,8 +426,8 @@ void CameraStreamingPage::initializeUi()
     QLabel *previewTitle = new QLabel(QStringLiteral("实时监控画面"), previewPanel); // 标题
     previewTitle->setObjectName(QStringLiteral("previewTitle"));                     // 标题对象名
     QLabel *previewHint = new QLabel(                                                // 提示文字
-        QStringLiteral("实时预览、画面变化检测与事件录像"),
-        previewPanel);
+        QStringLiteral("实时预览、画面变化检测与事件录像"),                         // 提示文字内容。
+        previewPanel);                                                               // 父对象为左侧预览面板。
     previewHint->setObjectName(QStringLiteral("previewHint"));  // 提示对象名
     QHBoxLayout *previewHeader = new QHBoxLayout();             // 标题栏水平布局
     previewHeader->addWidget(previewTitle);                     // 标题（左）
@@ -462,7 +462,7 @@ void CameraStreamingPage::initializeUi()
  *   CaptureThread::localPreviewReady  → updateLocalPreview()        (QueuedConnection)
  *
  */
-void CameraStreamingPage::initializeServices()
+void CameraStreamingPage::initializeServices() // 创建后台对象、划分线程归属，并连接页面的数据流和控制流。
 {
     // ===== 创建四个线程及其关联组件 =====
     cameraCaptureThread = new CaptureThread(this);    // 线程 1：V4L2 采集线程（QThread 子类）
@@ -499,18 +499,18 @@ void CameraStreamingPage::initializeServices()
     connect(startCaptureButton, &QPushButton::clicked,               // 按钮点击信号
             cameraCaptureThread, &CaptureThread::setCaptureEnabled); // 启动/停止 V4L2 采集
     // 采集按钮 → 更新按钮文字（"开始采集" ↔ "停止采集"）
-    connect(startCaptureButton, &QPushButton::clicked,
+    connect(startCaptureButton, &QPushButton::clicked,                // 同一个点击信号还用于更新页面文字和状态。
             this, &CameraStreamingPage::updateCaptureButtonText); // 更新按钮文字
     // 本地预览 CheckBox → 采集线程：开关本地预览帧分发
     connect(localPreviewCheckBox, &QCheckBox::clicked,                    // CheckBox 点击信号
             cameraCaptureThread, &CaptureThread::setLocalPreviewEnabled); // 控制是否发射 localPreviewReady
-    connect(localPreviewCheckBox, &QCheckBox::clicked, this,
-            [this](bool) { updateAnalysisFrameDistribution(); });
+    connect(localPreviewCheckBox, &QCheckBox::clicked, this,              // 本地预览开关的点击信号仍在主线程处理。
+            [this](bool) { updateAnalysisFrameDistribution(); });         // bool 参数在此无需使用；重新计算是否要向分析线程送帧。
     // 网络推流 CheckBox → networkStreamingToggled 槽（校验 IP 后配置 TcpFrameSender）
-    connect(networkStreamingCheckBox, &QCheckBox::clicked,
+    connect(networkStreamingCheckBox, &QCheckBox::clicked,             // 点击推流复选框时传递新的 bool 状态。
             this, &CameraStreamingPage::networkStreamingToggled); // 校验 + 配置 + 保存
     // 运动检测 CheckBox → visionDetectionToggled 槽
-    connect(visionDetectionCheckBox, &QCheckBox::clicked,
+    connect(visionDetectionCheckBox, &QCheckBox::clicked,              // 点击检测复选框时传递新的 bool 状态。
             this, &CameraStreamingPage::visionDetectionToggled); // 配置 VisionEventDetector
 
     /*
@@ -547,11 +547,11 @@ void CameraStreamingPage::initializeServices()
     // 主线程 → TcpFrameSender：请求开始录像
     connect(this, &CameraStreamingPage::recordingRequested, // 主线程信号
             frameSender, &TcpFrameSender::startRecording,   // 网络线程槽
-            Qt::QueuedConnection);
+            Qt::QueuedConnection);                               // 排队执行，避免在主线程直接操作网络线程对象。
     // 主线程 → TcpFrameSender：请求停止录像
     connect(this, &CameraStreamingPage::recordingStopRequested, // 主线程信号
             frameSender, &TcpFrameSender::stopRecording,        // 网络线程槽
-            Qt::QueuedConnection);
+            Qt::QueuedConnection);                                   // 排队执行，避免主线程阻塞视觉分析。
     // TcpFrameSender → 主线程：TCP 连接状态文字更新
     connect(frameSender, &TcpFrameSender::statusChanged, // 网络线程信号
             connectionStatusLabel, &QLabel::setText,     // 主线程 UI 更新
@@ -559,11 +559,11 @@ void CameraStreamingPage::initializeServices()
     // TcpFrameSender → 主线程：录像状态变更通知
     connect(frameSender, &TcpFrameSender::recordingStateChanged,     // 网络线程信号
             this, &CameraStreamingPage::handleRecordingStateChanged, // 主线程槽
-            Qt::QueuedConnection);
+            Qt::QueuedConnection);                                    // 录像状态跨线程排队回主线程处理。
     // TcpFrameSender → 主线程：录像错误通知
     connect(frameSender, &TcpFrameSender::recordingError,     // 网络线程信号
             this, &CameraStreamingPage::handleRecordingError, // 主线程槽
-            Qt::QueuedConnection);
+            Qt::QueuedConnection);                                    // 录像错误跨线程排队回主线程显示。
 
     /*
      * ===== 第四组：视觉检测线程（线程 3）的信号连接 =====
@@ -572,28 +572,29 @@ void CameraStreamingPage::initializeServices()
     connect(visionWorkerThread, &QThread::finished, // 线程退出信号
             visionDetector, &QObject::deleteLater); // 延迟删除
     // 线程 4（archive）启动时 → 初始化 HTTP 归档服务（监听 8890）
-    connect(archiveWorkerThread, &QThread::started,
-            archiveServer, [this]()
-            { archiveServer->initialize(8890); }); // Lambda 调用初始化
+    connect(archiveWorkerThread, &QThread::started,                    // 归档线程事件循环启动后发出 started 信号。
+            archiveServer, [this]()                                   // Lambda 捕获页面指针，以访问 archiveServer 成员。
+            { archiveServer->initialize(8890); });                     // 在线程 4 内启动监听 8890 端口的归档服务。
     // 线程 4 结束时 → 删除 archiveServer
-    connect(archiveWorkerThread, &QThread::finished,
-            archiveServer, &QObject::deleteLater);
+    connect(archiveWorkerThread, &QThread::finished,                   // 归档线程结束信号。
+            archiveServer, &QObject::deleteLater);                    // 安排安全释放归档服务对象。
     // archive 状态日志
-    connect(archiveServer, &MediaArchiveServer::statusChanged, this, [](const QString &status)
-            { qInfo() << status; }, // 打印日志
-            Qt::QueuedConnection);
+    connect(archiveServer, &MediaArchiveServer::statusChanged, this,   // 接收归档线程产生的状态文本。
+            [](const QString &status)                                 // status 参数是归档服务给出的可读状态说明。
+            { qInfo() << status; },                                   // 将状态写入应用日志，Lambda 不保存任何状态。
+            Qt::QueuedConnection);                                    // 跨线程排队到主线程执行日志回调。
     // 主线程 → VisionEventDetector：运动检测参数配置（跨线程）
     connect(this, &CameraStreamingPage::detectorConfigurationChanged, // 主线程信号
             visionDetector, &VisionEventDetector::configure,          // 视觉线程槽
-            Qt::QueuedConnection);
+            Qt::QueuedConnection);                                    // 配置请求排队送入视觉工作线程。
     // VisionEventDetector → 主线程：每帧分析完成（变化比例更新）
     connect(visionDetector, &VisionEventDetector::analysisCompleted, // 视觉线程信号
             this, &CameraStreamingPage::handleAnalysisCompleted,     // 主线程槽
-            Qt::QueuedConnection);
+            Qt::QueuedConnection);                                    // 分析结果排队回到主线程更新 UI。
     // VisionEventDetector → 主线程：检测到画面运动事件（记录事件并可自动录像）
     connect(visionDetector, &VisionEventDetector::visualMotionDetected, // 视觉线程信号
             this, &CameraStreamingPage::handleVisualMotionDetected,     // 主线程槽
-            Qt::QueuedConnection);
+            Qt::QueuedConnection);                                    // 告警排队回到主线程统一记录。
 
     /*
      * ===== 第五组：输入框参数变更 → 即时应用 =====
@@ -602,16 +603,16 @@ void CameraStreamingPage::initializeServices()
     connect(serverAddressEdit, &QLineEdit::editingFinished,   // 编辑完成信号（回车或失焦）
             this, &CameraStreamingPage::applyServerEndpoint); // 应用新地址
     // 端口变化 → 保存并更新推流配置
-    connect(serverPortSpinBox,
+    connect(serverPortSpinBox,                                         // 监听推流端口输入框的值变化。
             QOverload<int>::of(&QSpinBox::valueChanged), // valueChanged(int) 信号
             this, [this](int)                            // 忽略具体端口值
             { applyServerEndpoint(); });                 // 调用配置下发
-    connect(streamTransportComboBox,
-            QOverload<int>::of(&QComboBox::currentIndexChanged),
-            this, [this](int) { applyServerEndpoint(); });
+    connect(streamTransportComboBox,                                  // 监听传输协议下拉框。
+            QOverload<int>::of(&QComboBox::currentIndexChanged),       // 明确选择带 int 新索引参数的重载信号。
+            this, [this](int) { applyServerEndpoint(); });             // 此处不使用索引值，统一从控件读取当前协议并应用。
     // 运动阈值变化 → 立即更新 VisionEventDetector 配置
-    connect(motionThresholdSpinBox,
-            QOverload<int>::of(&QSpinBox::valueChanged),
+    connect(motionThresholdSpinBox,                                    // 监听画面变化阈值输入框。
+            QOverload<int>::of(&QSpinBox::valueChanged),               // 明确选择 valueChanged(int) 信号重载。
             this, [this](int threshold)                                                          // 捕获新阈值
             { emit detectorConfigurationChanged(                                                 // 发射跨线程信号
                   visionDetectionCheckBox->isChecked(), threshold); }); // 传递是否启用 + 阈值
@@ -635,7 +636,7 @@ void CameraStreamingPage::initializeServices()
  * 心跳机制：每 10 秒发布一次采集、推流、检测和录像状态
  * 重连机制：断开后 3 秒自动重连
  */
-void CameraStreamingPage::initializeMqtt()
+void CameraStreamingPage::initializeMqtt() // 创建 MQTT 客户端和定时器，并建立连接、消息与错误处理回调。
 {
     mqttClient = new QMqttClient(this);      // 创建 MQTT 客户端
     heartbeatTimer = new QTimer(this);       // 心跳定时器
@@ -645,19 +646,19 @@ void CameraStreamingPage::initializeMqtt()
     heartbeatTimer->setInterval(10000);      // 每 10 秒发送一次心跳
 
     // MQTT 开关 CheckBox → 连接/断开
-    connect(mqttEnabledCheckBox, &QCheckBox::clicked,
-            this, &CameraStreamingPage::mqttMonitoringToggled);
+    connect(mqttEnabledCheckBox, &QCheckBox::clicked,                  // 用户点击 MQTT 开关时发出 enabled 布尔值。
+            this, &CameraStreamingPage::mqttMonitoringToggled);        // 主线程槽根据 enabled 发起连接或主动断开。
     // 心跳定时器 → 发布设备遥测数据
-    connect(heartbeatTimer, &QTimer::timeout,
-            this, &CameraStreamingPage::publishHeartbeat);
+    connect(heartbeatTimer, &QTimer::timeout,                          // 每到 10 秒定时周期发出 timeout。
+            this, &CameraStreamingPage::publishHeartbeat);             // 构造并发布当前设备状态 JSON。
     // 重连定时器 → 尝试重新连接 MQTT 服务器
-    connect(mqttReconnectTimer, &QTimer::timeout, this, [this]()
+    connect(mqttReconnectTimer, &QTimer::timeout, this, [this]()       // 单次重连定时器到期后执行此 Lambda。
             {
-        if (mqttEnabledCheckBox->isChecked() &&
-                mqttClient->state() == QMqttClient::Disconnected) {
-            mqttStatusLabel->setText(QStringLiteral("MQTT正在重新连接..."));
-            mqttClient->connectToHost();
-        } });
+        if (mqttEnabledCheckBox->isChecked() &&                        // 用户仍希望保持 MQTT 连接，并且
+                mqttClient->state() == QMqttClient::Disconnected) {   // 客户端当前确实处于断开状态时才重连。
+            mqttStatusLabel->setText(QStringLiteral("MQTT正在重新连接...")); // 在界面上提示本次重连动作。
+            mqttClient->connectToHost();                               // 使用客户端中已经保存的主机和端口重新连接。
+        } });                                                          // 结束重连条件和 Lambda。
 
     /*
      * MQTT 连接状态机处理。
@@ -666,60 +667,60 @@ void CameraStreamingPage::initializeMqtt()
      *   Connecting   — 显示连接中提示
      *   Disconnected — 如果用户勾选了连接，启动 3 秒重连定时器；否则显示已断开
      */
-    connect(mqttClient, &QMqttClient::stateChanged,
-            this, [this](QMqttClient::ClientState state)
+    connect(mqttClient, &QMqttClient::stateChanged,                    // MQTT 状态变化时发送新的 ClientState。
+            this, [this](QMqttClient::ClientState state)               // state 参数表示已连接、连接中或已断开。
             {
-        switch (state) {
-        case QMqttClient::Connected: {
+        switch (state) {                                               // 根据客户端当前状态执行对应 UI 和定时器操作。
+        case QMqttClient::Connected: {                                 // 已与 Broker 成功建立连接。
             mqttReconnectTimer->stop();                 // 连接成功，停止重连
-            mqttStatusLabel->setText(QStringLiteral("MQTT已连接：%1")
-                                     .arg(deviceId));
+            mqttStatusLabel->setText(QStringLiteral("MQTT已连接：%1") // 状态文字中包含当前设备 ID。
+                                     .arg(deviceId));                   // 用 deviceId 替换字符串中的 %1。
             mqttHostEdit->setEnabled(false);            // 连接后锁定地址/端口
-            mqttPortSpinBox->setEnabled(false);
+            mqttPortSpinBox->setEnabled(false);                         // 连接期间禁止修改端口。
             // 订阅远程命令主题（QoS 1：至少一次送达）
-            auto subscription = mqttClient->subscribe(
-                        mqttTopic(QStringLiteral("commands")), 1);
-            if (!subscription)
-                qWarning() << "MQTT命令主题订阅失败";
+            auto subscription = mqttClient->subscribe(                 // subscription 保存订阅对象指针，用于判断订阅是否成功。
+                        mqttTopic(QStringLiteral("commands")), 1);     // 订阅本设备 commands 主题，QoS 为 1。
+            if (!subscription)                                         // 返回空指针说明订阅请求未创建成功。
+                qWarning() << "MQTT命令主题订阅失败";                  // 写日志提示远程命令将无法收到。
             heartbeatTimer->start();                    // 启动心跳定时器
             publishHeartbeat();                         // 连接后立即发送首条心跳
-            break;
+            break;                                                      // Connected 分支处理结束。
         }
-        case QMqttClient::Connecting:
-            mqttStatusLabel->setText(QStringLiteral("MQTT正在连接..."));
-            break;
-        case QMqttClient::Disconnected:
-            if (mqttEnabledCheckBox->isChecked()) {
+        case QMqttClient::Connecting:                                   // TCP/MQTT 握手仍在进行。
+            mqttStatusLabel->setText(QStringLiteral("MQTT正在连接...")); // 向用户显示中间连接状态。
+            break;                                                      // Connecting 分支处理结束。
+        case QMqttClient::Disconnected:                                 // 当前没有与 Broker 建立连接。
+            if (mqttEnabledCheckBox->isChecked()) {                     // 开关仍选中表示断开不是用户主动要求。
                 // 用户期望连接但断开 → 自动重连
-                mqttStatusLabel->setText(
-                            QStringLiteral("MQTT已断开，3秒后自动重连"));
-                mqttReconnectTimer->start();
-            } else {
+                mqttStatusLabel->setText(                               // 向用户说明当前断线和后续动作。
+                            QStringLiteral("MQTT已断开，3秒后自动重连")); // 显示固定的 3 秒重连提示。
+                mqttReconnectTimer->start();                            // 3 秒后触发一次自动重连。
+            } else {                                                    // 开关未选中表示用户主动关闭连接。
                 // 用户主动断开 → 不重连
-                mqttStatusLabel->setText(QStringLiteral("MQTT已断开"));
+                mqttStatusLabel->setText(QStringLiteral("MQTT已断开")); // 显示稳定的主动断开状态。
             }
             mqttHostEdit->setEnabled(true);             // 断开后恢复地址可编辑
-            mqttPortSpinBox->setEnabled(true);
+            mqttPortSpinBox->setEnabled(true);                          // 断开后允许用户重新编辑端口。
             heartbeatTimer->stop();                     // 停止心跳
-            break;
-        } });
+            break;                                                      // Disconnected 分支处理结束。
+        } });                                                           // 结束状态 switch 和 Lambda。
     // MQTT 消息接收 → 如果是 commands 主题的消息，调用命令处理函数
-    connect(mqttClient, &QMqttClient::messageReceived,
-            this, [this](const QByteArray &message, const QMqttTopicName &topic)
+    connect(mqttClient, &QMqttClient::messageReceived,                  // 任意已订阅主题收到消息时发出信号。
+            this, [this](const QByteArray &message, const QMqttTopicName &topic) // message 是载荷；topic 是消息所属主题。
             {
-        if (topic.name() == mqttTopic(QStringLiteral("commands")))
-            handleMqttCommand(message); });
+        if (topic.name() == mqttTopic(QStringLiteral("commands")))     // 只处理属于当前设备的 commands 主题。
+            handleMqttCommand(message); });                             // 把原始载荷交给统一远程命令解析函数。
     // MQTT 错误处理 → 显示错误码，等待自动重连
-    connect(mqttClient, &QMqttClient::errorChanged,
-            this, [this](QMqttClient::ClientError error)
+    connect(mqttClient, &QMqttClient::errorChanged,                     // MQTT 客户端错误码变化时触发。
+            this, [this](QMqttClient::ClientError error)                // error 参数是 Qt MQTT 定义的连接错误枚举。
             {
-        if (error == QMqttClient::NoError)
-            return;
-        mqttStatusLabel->setText(QStringLiteral("MQTT连接错误(%1)，等待重连")
-                                 .arg(int(error)));
-        qWarning() << "MQTT连接错误，错误码：" << int(error)
-                   << "服务器：" << mqttClient->hostname()
-                   << mqttClient->port(); });
+        if (error == QMqttClient::NoError)                              // NoError 不是故障，无需更新错误提示。
+            return;                                                     // 直接退出错误回调。
+        mqttStatusLabel->setText(QStringLiteral("MQTT连接错误(%1)，等待重连") // UI 中显示数值错误码。
+                                 .arg(int(error)));                     // 将枚举转换为 int 后填入 %1。
+        qWarning() << "MQTT连接错误，错误码：" << int(error)           // 输出数值错误码，便于查 Qt 文档定位。
+                   << "服务器：" << mqttClient->hostname()             // 同时输出发生错误的 Broker 主机名。
+                   << mqttClient->port(); });                           // 输出 Broker 端口并结束 Lambda。
 }
 
 /*
@@ -757,10 +758,10 @@ void CameraStreamingPage::loadSettings() // 读取 QSettings 并设置到所有�
         settings.value(QStringLiteral("edge/streamPort"), // 键名。
                        8888)                              // 默认端口 8888（项目 TCP 帧协议专用）。
             .toInt());                                    // QVariant → int 转换。
-    const QString transport = settings.value(QStringLiteral("edge/streamTransport"),
-                                             QStringLiteral("udp")).toString().toLower();
-    const int transportIndex = streamTransportComboBox->findData(transport);
-    streamTransportComboBox->setCurrentIndex(transportIndex >= 0 ? transportIndex : 1);
+    const QString transport = settings.value(QStringLiteral("edge/streamTransport"), // transport 保存上次选择的协议标识。
+                                             QStringLiteral("udp")).toString().toLower(); // 配置不存在时默认 UDP，并统一转为小写。
+    const int transportIndex = streamTransportComboBox->findData(transport); // 按内部数据查找协议在下拉框中的索引。
+    streamTransportComboBox->setCurrentIndex(transportIndex >= 0 ? transportIndex : 1); // 找不到旧值时回退到索引 1 的 UDP。
 
     // ----- MQTT 服务器地址和端口 -----
     // settings.value("edge/mqttHost", "192.168.10.100")：
@@ -801,8 +802,8 @@ void CameraStreamingPage::saveSettings() const // 由析构函数和参数变更
     // 保存 TCP 推流目标端口。
     settings.setValue(QStringLiteral("edge/streamPort"), // 键名：推流端口。
                       serverPortSpinBox->value());       // 值为 SpinBox 当前整数值。
-    settings.setValue(QStringLiteral("edge/streamTransport"),
-                      streamTransportComboBox->currentData().toString());
+    settings.setValue(QStringLiteral("edge/streamTransport"),           // 键名：当前推流协议。
+                      streamTransportComboBox->currentData().toString()); // 保存选项携带的 "tcp" 或 "udp" 数据。
 
     // 保存 MQTT Broker 地址。
     settings.setValue(QStringLiteral("edge/mqttHost"), // 键名：MQTT 服务器 IP。
@@ -862,35 +863,35 @@ void CameraStreamingPage::displayPreviewImage(const QImage &image) // image是�
 /*
  * ===== resizeEvent() — 窗口大小变化时重新缩放预览画面 =====
  */
-void CameraStreamingPage::resizeEvent(QResizeEvent *event)
+void CameraStreamingPage::resizeEvent(QResizeEvent *event) // event 描述新的页面尺寸；本函数重写 QWidget 的尺寸变化处理。
 {
-    QWidget::resizeEvent(event);
+    QWidget::resizeEvent(event); // 先交给基类完成 QWidget 自身的布局与尺寸更新。
     // 只有当本地预览开启且有缓存帧时，才重新缩放显示
-    if (!latestFrame.isNull() && localPreviewCheckBox->isChecked())
-        displayPreviewImage(latestFrame);
+    if (!latestFrame.isNull() && localPreviewCheckBox->isChecked()) // 有缓存帧且预览开启时才需要重绘。
+        displayPreviewImage(latestFrame); // 按新的 QLabel 尺寸重新缩放缓存的最后一帧。
 }
 
 /*
  * ===== updateCaptureButtonText() — 采集启停时更新按钮文字和状态 =====
  */
-void CameraStreamingPage::updateCaptureButtonText(bool capturing)
+void CameraStreamingPage::updateCaptureButtonText(bool capturing) // capturing 是按钮点击后的采集启用状态。
 {
     // 根据采集状态切换按钮文字。
     startCaptureButton->setText(capturing                                    // 三元判断：capturing=true?
                                     ? QStringLiteral("停止采集摄像头数据")   // 正在采集 → 显示"停止"。
                                     : QStringLiteral("开始采集摄像头数据")); // 未采集 → 显示"开始"。
-    updateAnalysisFrameDistribution();
+    updateAnalysisFrameDistribution(); // 采集状态变化后重新决定是否向视觉检测器发送分析帧。
     // 如果停止采集但录像还在进行中，强制停止录像（录像需要采集帧作为数据源）。
     if (!capturing && eventRecordingActive) // 正在停止采集且仍有活跃录像？
         emit recordingStopRequested();      // 跨线程通知 TcpFrameSender 停止录像写文件。
     publishHeartbeat();                     // 推流/分析/录像状态变更后立即发送心跳更新状态。
 }
 
-void CameraStreamingPage::updateAnalysisFrameDistribution()
+void CameraStreamingPage::updateAnalysisFrameDistribution() // 根据采集和检测两个开关统一控制分析帧分发。
 {
-    cameraCaptureThread->setAnalysisEnabled(
-        startCaptureButton->isChecked() &&
-        visionDetectionCheckBox->isChecked());
+    cameraCaptureThread->setAnalysisEnabled(                            // 把最终分析开关写入采集线程。
+        startCaptureButton->isChecked() &&                              // 必须正在采集，才有图像可供分析；并且
+        visionDetectionCheckBox->isChecked());                          // 用户必须已经开启视觉变化检测。
 }
 
 /*
@@ -900,7 +901,7 @@ void CameraStreamingPage::updateAnalysisFrameDistribution()
  * 注意：eventRecordingActive 为 true 时也需要强制开启网络帧分发，
  * 因为录像依赖 TcpFrameSender 接受帧数据。
  */
-void CameraStreamingPage::networkStreamingToggled(bool enabled)
+void CameraStreamingPage::networkStreamingToggled(bool enabled) // enabled 表示用户希望开启还是关闭实时网络推流。
 {
     if (enabled && serverAddressEdit->text().trimmed().isEmpty()) // 启用推流但 IP 为空？
     {
@@ -916,15 +917,15 @@ void CameraStreamingPage::networkStreamingToggled(bool enabled)
     // 跨线程配置 TcpFrameSender 的目标地址（主机 + 端口 + 是否启用）。
     emit senderConfigurationChanged(serverAddressEdit->text().trimmed(), // 目标 IP（去首尾空白）。
                                     quint16(serverPortSpinBox->value()), // 目标端口（转为 16 位无符号）。
-                                    enabled,
-                                    streamTransportComboBox->currentData().toString());
+                                    enabled,                            // 是否真正向远端发送编码后的实时视频。
+                                    streamTransportComboBox->currentData().toString()); // 当前选中的 "tcp" 或 "udp" 协议。
     publishHeartbeat();                                                  // 状态变更后发送心跳。
 }
 
 /*
  * ===== applyServerEndpoint() — 应用服务器地址/端口配置变更 =====
  */
-void CameraStreamingPage::applyServerEndpoint()
+void CameraStreamingPage::applyServerEndpoint() // 保存当前端点；推流已开启时立即把新端点下发给发送器。
 {
     saveSettings(); // 先将当前 IP/端口配置持久化到 QSettings。
     // 仅在 TCP 推流已开启时，才将新地址立即应用到 TcpFrameSender。
@@ -933,8 +934,8 @@ void CameraStreamingPage::applyServerEndpoint()
     {
         emit senderConfigurationChanged(serverAddressEdit->text().trimmed(), // 新 IP（去空白）。
                                         quint16(serverPortSpinBox->value()), // 新端口。
-                                        true,
-                                        streamTransportComboBox->currentData().toString());
+                                        true,                           // 保持推流启用状态，只更新连接参数。
+                                        streamTransportComboBox->currentData().toString()); // 下发当前传输协议。
     }
 }
 
@@ -944,9 +945,9 @@ void CameraStreamingPage::applyServerEndpoint()
  * 启用时配置 VisionEventDetector 的像素变化阈值。
  * 同时确保采集线程开启分析帧分发（最高 30 FPS 给视觉线程）。
  */
-void CameraStreamingPage::visionDetectionToggled(bool enabled)
+void CameraStreamingPage::visionDetectionToggled(bool enabled) // enabled 是视觉变化检测复选框的新状态。
 {
-    updateAnalysisFrameDistribution();
+    updateAnalysisFrameDistribution(); // 同步 CaptureThread 是否需要产生 analysisFrameReady 信号。
     // 跨线程配置 VisionEventDetector：是否启用 + 像素变化阈值。
     emit detectorConfigurationChanged(enabled,                          // enabled=true 开启运动检测。
                                       motionThresholdSpinBox->value()); // 当前阈值百分比值。
@@ -964,8 +965,8 @@ void CameraStreamingPage::visionDetectionToggled(bool enabled)
  * 注意：这里不触发告警事件（告警由 visualMotionDetected 信号触发），
  * 仅更新 UI 状态文字。
  */
-void CameraStreamingPage::handleAnalysisCompleted(const QImage &image,
-                                                  double changedRatio)
+void CameraStreamingPage::handleAnalysisCompleted(const QImage &image, // image 是检测器处理本帧时使用的图像。
+                                                  double changedRatio) // changedRatio 是变化像素占总像素的 0~1 比例。
 {
     // 如果本地预览关闭，用分析帧更新 latestFrame 缓存。
     if (!image.isNull() && !localPreviewCheckBox->isChecked()) // 有图像且预览未开启？
@@ -985,7 +986,7 @@ void CameraStreamingPage::handleAnalysisCompleted(const QImage &image,
  * 当连续多帧画面变化超过阈值时，VisionEventDetector 发出此信号。
  * 处理：记录事件到 SQLite + 添加到 UI 列表 + MQTT 推送 + 自动事件录像。
  */
-void CameraStreamingPage::handleVisualMotionDetected(double changedRatio)
+void CameraStreamingPage::handleVisualMotionDetected(double changedRatio) // changedRatio 是触发告警时的变化像素比例。
 {
     recordMonitoringEvent(                                 // 统一事件记录入口。
         QStringLiteral("visual_motion"),                   // 事件类型：画面运动。
@@ -1002,7 +1003,7 @@ void CameraStreamingPage::handleVisualMotionDetected(double changedRatio)
  * H.264 Annex B 裸码流录像保存在 data/recordings 目录下。
  * 注意：这里只生成路径，目录由 TcpFrameSender 在开始录像时创建。
  */
-QString CameraStreamingPage::createRecordingPath(const QString &eventType) const
+QString CameraStreamingPage::createRecordingPath(const QString &eventType) const // eventType 将写入文件名以标识录像原因。
 {
     // 构建 data/recordings 目录路径。
     const QString directoryPath = QDir(QCoreApplication::applicationDirPath())      // 从 exe 所在目录。
@@ -1026,9 +1027,9 @@ QString CameraStreamingPage::createRecordingPath(const QString &eventType) const
  *   3. 添加到 UI 事件列表（addEventToList）
  *   4. 通过 MQTT 推送到 PC 接收端（publishMqttJson）
  */
-void CameraStreamingPage::recordMonitoringEvent(
-    const QString &eventType, MonitoringEventSeverity severity,
-    const QString &source, const QString &message, bool requestRecording)
+void CameraStreamingPage::recordMonitoringEvent( // 接收一次监控事件，并统一完成录像、存储、显示和 MQTT 推送。
+    const QString &eventType, MonitoringEventSeverity severity, // eventType 是事件分类；severity 是严重等级。
+    const QString &source, const QString &message, bool requestRecording) // source 是来源；message 是描述；requestRecording 决定是否请求录像。
 {
     // ----- 步骤1：构建事件结构体 -----
     MonitoringEvent event;                                    // 栈上创建事件对象。
@@ -1087,7 +1088,7 @@ void CameraStreamingPage::recordMonitoringEvent(
  * 每行显示：时间戳 [严重等级] 事件消息
  * Tooltip 显示：来源 / 录像路径
  */
-void CameraStreamingPage::addEventToList(const MonitoringEvent &event)
+void CameraStreamingPage::addEventToList(const MonitoringEvent &event) // event 包含待显示事件的时间、等级、来源、消息和录像路径。
 {
     // 格式化时间戳（月-日 时:分:秒 格式）。
     const QString timestamp = event.createdAt.isValid()                                        // 时间戳有效？
@@ -1124,15 +1125,15 @@ void CameraStreamingPage::addEventToList(const MonitoringEvent &event)
  * active=true：录像已开始
  * active=false：录像已停止（文件已保存）
  */
-void CameraStreamingPage::handleRecordingStateChanged(
-    bool active, const QString &filePath)
+void CameraStreamingPage::handleRecordingStateChanged( // 接收发送器的录像启停结果并同步页面状态。
+    bool active, const QString &filePath) // active 表示是否正在录像；filePath 是当前或刚完成的录像路径。
 {
-    eventRecordingActive = active;
+    eventRecordingActive = active; // 同步页面保存的录像活跃状态。
     if (active)                    // 录像已开始。
     {
         currentRecordingPath = filePath; // 记录当前录像文件路径。
-        recordingStatusLabel->setText(QStringLiteral("事件录像中：%1")
-                                          .arg(QFileInfo(filePath).fileName()));
+        recordingStatusLabel->setText(QStringLiteral("事件录像中：%1") // 状态标签只展示简短文件名。
+                                          .arg(QFileInfo(filePath).fileName())); // QFileInfo 从完整路径提取文件名。
     }
     else // 录像已停止（文件已保存）。
     {
@@ -1158,11 +1159,11 @@ void CameraStreamingPage::handleRecordingStateChanged(
 /*
  * ===== handleRecordingError() — 录像错误处理 =====
  */
-void CameraStreamingPage::handleRecordingError(const QString &message)
+void CameraStreamingPage::handleRecordingError(const QString &message) // message 是 TcpFrameSender 返回的可读错误说明。
 {
-    eventRecordingActive = false;
-    currentRecordingPath.clear();
-    recordingStatusLabel->setText(message);
+    eventRecordingActive = false;             // 错误发生后页面不再认为录像仍处于活动状态。
+    currentRecordingPath.clear();             // 清除已失败或无效的录像路径。
+    recordingStatusLabel->setText(message);   // 将具体错误展示给用户。
     // 如果 TCP 推流也没勾选，停止网络帧分发（与录像停止逻辑一致）。
     if (!networkStreamingCheckBox->isChecked())                 // 推流未勾选？
         cameraCaptureThread->setNetworkStreamingEnabled(false); // 关闭帧分发。
@@ -1171,31 +1172,31 @@ void CameraStreamingPage::handleRecordingError(const QString &message)
 /*
  * ===== mqttMonitoringToggled() — MQTT 连接/断开开关 =====
  */
-void CameraStreamingPage::mqttMonitoringToggled(bool enabled)
+void CameraStreamingPage::mqttMonitoringToggled(bool enabled) // enabled 表示用户希望连接还是断开 MQTT Broker。
 {
-    if (!enabled)
+    if (!enabled) // 关闭开关时走主动断开分支。
     {
         // 断开连接：停止重连定时器和心跳，断开 MQTT
-        mqttReconnectTimer->stop();
-        mqttClient->disconnectFromHost();
-        return;
+        mqttReconnectTimer->stop();       // 禁止主动断开之后仍被定时器重新连接。
+        mqttClient->disconnectFromHost(); // 请求客户端关闭当前 MQTT 连接。
+        return;                           // 主动断开不再执行后面的连接参数配置。
     }
     // 连接前校验：host 不能为空
-    const QString host = mqttHostEdit->text().trimmed();
-    if (host.isEmpty())
+    const QString host = mqttHostEdit->text().trimmed(); // host 保存去除首尾空白后的 Broker 地址。
+    if (host.isEmpty())                                  // 空地址无法建立连接。
     {
-        const QSignalBlocker blocker(mqttEnabledCheckBox);
-        mqttEnabledCheckBox->setChecked(false);
-        mqttStatusLabel->setText(QStringLiteral("请先填写MQTT服务器"));
-        return;
+        const QSignalBlocker blocker(mqttEnabledCheckBox);             // blocker 在当前作用域内阻止复位动作再次发出控件信号。
+        mqttEnabledCheckBox->setChecked(false);                         // 将无效的开启状态恢复为未选中。
+        mqttStatusLabel->setText(QStringLiteral("请先填写MQTT服务器")); // 告知用户缺少必要地址。
+        return;                                                         // 参数无效，不调用 connectToHost()。
     }
-    saveSettings();
+    saveSettings(); // 连接前保存用户刚输入的 MQTT 地址和端口。
     // 配置 MQTT 客户端参数
-    mqttClient->setHostname(host);
-    mqttClient->setPort(quint16(mqttPortSpinBox->value()));
+    mqttClient->setHostname(host);                           // 设置要连接的 Broker 主机名或 IP。
+    mqttClient->setPort(quint16(mqttPortSpinBox->value())); // 将 SpinBox 整数端口转为 MQTT 接口需要的 quint16。
     // ClientID 格式：imx6ull-001-edge-terminal（设备ID + 角色后缀）
-    mqttClient->setClientId(deviceId + QStringLiteral("-edge-terminal"));
-    mqttClient->connectToHost();
+    mqttClient->setClientId(deviceId + QStringLiteral("-edge-terminal")); // 为 Broker 设置可识别且相对唯一的客户端 ID。
+    mqttClient->connectToHost();                                           // 异步开始连接；结果由 stateChanged 信号反馈。
 }
 
 /*
@@ -1204,9 +1205,9 @@ void CameraStreamingPage::mqttMonitoringToggled(bool enabled)
  * 格式：devices/{deviceId}/{suffix}
  * 例如：devices/imx6ull-001/status
  */
-QString CameraStreamingPage::mqttTopic(const QString &suffix) const
+QString CameraStreamingPage::mqttTopic(const QString &suffix) const // suffix 是 status、events、commands 等主题末级名称。
 {
-    return QStringLiteral("devices/%1/%2").arg(deviceId, suffix);
+    return QStringLiteral("devices/%1/%2").arg(deviceId, suffix); // 把设备 ID 和后缀填入统一主题模板并返回。
 }
 
 /*
@@ -1215,14 +1216,14 @@ QString CameraStreamingPage::mqttTopic(const QString &suffix) const
  * QoS 1（至少一次送达），不保留（retain=false）。
  * 仅在 MQTT 已连接时发布，断开时直接跳过。
  */
-void CameraStreamingPage::publishMqttJson(const QString &topic,
-                                          const QJsonObject &object)
+void CameraStreamingPage::publishMqttJson(const QString &topic,       // topic 是消息需要发布到的完整 MQTT 主题。
+                                          const QJsonObject &object)  // object 是需要序列化并发送的 JSON 对象。
 {
-    if (!mqttClient || mqttClient->state() != QMqttClient::Connected)
-        return;
-    const QByteArray payload = QJsonDocument(object).toJson(QJsonDocument::Compact);
-    if (mqttClient->publish(QMqttTopicName(topic), payload, 1, false) < 0)
-        qWarning() << "MQTT发布失败：" << topic << payload;
+    if (!mqttClient || mqttClient->state() != QMqttClient::Connected) // 客户端不存在或尚未连接时不能发布。
+        return;                                                        // 直接丢弃本次状态消息，不阻塞页面。
+    const QByteArray payload = QJsonDocument(object).toJson(QJsonDocument::Compact); // payload 是无缩进的紧凑 UTF-8 JSON 字节串。
+    if (mqttClient->publish(QMqttTopicName(topic), payload, 1, false) < 0) // QoS=1、retain=false；负返回值表示发布失败。
+        qWarning() << "MQTT发布失败：" << topic << payload;              // 输出主题和载荷，便于定位问题。
 }
 
 /*
@@ -1233,20 +1234,20 @@ void CameraStreamingPage::publishMqttJson(const QString &topic,
  *
  * PC 接收端通过订阅 devices/{id}/status 主题获取设备实时状态。
  */
-void CameraStreamingPage::publishHeartbeat()
+void CameraStreamingPage::publishHeartbeat() // 采集当前页面状态，组成 JSON 并发布到本设备 status 主题。
 {
-    QJsonObject status;
-    status.insert(QStringLiteral("deviceId"), deviceId);
-    status.insert(QStringLiteral("online"), true);
-    status.insert(QStringLiteral("captureEnabled"), startCaptureButton->isChecked());
-    status.insert(QStringLiteral("streamingEnabled"), networkStreamingCheckBox->isChecked());
-    status.insert(QStringLiteral("streamTransport"),
-                  streamTransportComboBox->currentData().toString());
-    status.insert(QStringLiteral("visionEnabled"), visionDetectionCheckBox->isChecked());
-    status.insert(QStringLiteral("recording"), eventRecordingActive);
-    status.insert(QStringLiteral("timestamp"),
-                  QDateTime::currentDateTime().toString(Qt::ISODateWithMs));
-    publishMqttJson(mqttTopic(QStringLiteral("status")), status);
+    QJsonObject status; // status 保存本次心跳的所有键值字段。
+    status.insert(QStringLiteral("deviceId"), deviceId); // 标明是哪台设备发送的心跳。
+    status.insert(QStringLiteral("online"), true); // 能发出本消息即表示程序在线。
+    status.insert(QStringLiteral("captureEnabled"), startCaptureButton->isChecked()); // 上报摄像头采集开关状态。
+    status.insert(QStringLiteral("streamingEnabled"), networkStreamingCheckBox->isChecked()); // 上报实时推流开关状态。
+    status.insert(QStringLiteral("streamTransport"),                  // 上报当前推流协议字段。
+                  streamTransportComboBox->currentData().toString());  // 取选项内部保存的 "tcp" 或 "udp"。
+    status.insert(QStringLiteral("visionEnabled"), visionDetectionCheckBox->isChecked()); // 上报视觉检测开关状态。
+    status.insert(QStringLiteral("recording"), eventRecordingActive); // 上报事件录像是否正在进行。
+    status.insert(QStringLiteral("timestamp"),                        // 添加本次状态采集的时间戳。
+                  QDateTime::currentDateTime().toString(Qt::ISODateWithMs)); // 使用带毫秒的 ISO 8601 字符串。
+    publishMqttJson(mqttTopic(QStringLiteral("status")), status);      // 通过统一发布函数发送心跳对象。
 }
 
 /*
@@ -1266,45 +1267,45 @@ void CameraStreamingPage::publishHeartbeat()
  *
  * 每个命令执行后都会回复 acknowledgement 到 command_ack 主题。
  */
-void CameraStreamingPage::handleMqttCommand(const QByteArray &payload)
+void CameraStreamingPage::handleMqttCommand(const QByteArray &payload) // payload 是 commands 主题收到的原始 MQTT 消息体。
 {
-    QString command;
-    QJsonObject request;
-    QJsonParseError parseError;
+    QString command;               // command 保存规范化后的命令名称。
+    QJsonObject request;           // request 保存 JSON 命令对象及其附带参数。
+    QJsonParseError parseError;    // parseError 接收 JSON 解析结果和错误位置。
     // 尝试解析为 JSON
-    const QJsonDocument document = QJsonDocument::fromJson(payload, &parseError);
-    if (parseError.error == QJsonParseError::NoError && document.isObject())
+    const QJsonDocument document = QJsonDocument::fromJson(payload, &parseError); // document 尝试把原始字节解析为 JSON 文档。
+    if (parseError.error == QJsonParseError::NoError && document.isObject()) // 只有无解析错误且根节点是对象才按 JSON 命令处理。
     {
-        request = document.object();
-        command = request.value(QStringLiteral("command")).toString().trimmed();
+        request = document.object(); // 保存整个对象，后续 set_stream_endpoint 还要读取其他字段。
+        command = request.value(QStringLiteral("command")).toString().trimmed(); // 读取 command 字段并去掉首尾空白。
     }
-    else
+    else // JSON 解析失败或根节点不是对象时，尝试兼容旧版纯文本命令。
     {
         // 解析失败则视为纯文本命令（向后兼容）
-        command = QString::fromUtf8(payload).trimmed();
+        command = QString::fromUtf8(payload).trimmed(); // 将非 JSON 载荷直接按 UTF-8 命令名处理。
     }
 
-    bool accepted = true;
-    QString result = QStringLiteral("命令已执行");
+    bool accepted = true;                          // accepted 表示命令是否合法并被执行，默认先按成功处理。
+    QString result = QStringLiteral("命令已执行"); // result 保存要回复给 PC 端的执行说明。
 
     /*
      * 命令分发：通过模拟按钮点击来触发已有的业务逻辑，
      * 避免重复实现相同的功能代码。
      */
     // ===== start_capture：远程启动摄像头采集 =====
-    if (command == QLatin1String("start_capture"))
+    if (command == QLatin1String("start_capture")) // 匹配启动采集命令。
     {
         if (!startCaptureButton->isChecked()) // 仅当尚未启动时执行
             startCaptureButton->click();      // 模拟点击按钮 → 触发 setCaptureEnabled(true)
     }
     // ===== stop_capture：远程停止摄像头采集 =====
-    else if (command == QLatin1String("stop_capture"))
+    else if (command == QLatin1String("stop_capture")) // 匹配停止采集命令。
     {
         if (startCaptureButton->isChecked()) // 仅当正在采集时执行
             startCaptureButton->click();     // 模拟点击按钮 → 触发 setCaptureEnabled(false)
     }
     // ===== stream_on：远程开启 TCP 实时推流 =====
-    else if (command == QLatin1String("stream_on"))
+    else if (command == QLatin1String("stream_on")) // 匹配开启实时推流命令。
     {
         if (!networkStreamingCheckBox->isChecked()) // 仅当推流未开启时执行
         {
@@ -1313,7 +1314,7 @@ void CameraStreamingPage::handleMqttCommand(const QByteArray &payload)
         }
     }
     // ===== stream_off：远程停止 TCP 实时推流 =====
-    else if (command == QLatin1String("stream_off"))
+    else if (command == QLatin1String("stream_off")) // 匹配关闭实时推流命令。
     {
         if (networkStreamingCheckBox->isChecked()) // 仅当推流已开启时执行
         {
@@ -1322,7 +1323,7 @@ void CameraStreamingPage::handleMqttCommand(const QByteArray &payload)
         }
     }
     // ===== vision_on：远程开启视觉运动检测 =====
-    else if (command == QLatin1String("vision_on"))
+    else if (command == QLatin1String("vision_on")) // 匹配开启视觉变化检测命令。
     {
         if (!visionDetectionCheckBox->isChecked()) // 仅当运动检测未开启时执行
         {
@@ -1331,7 +1332,7 @@ void CameraStreamingPage::handleMqttCommand(const QByteArray &payload)
         }
     }
     // ===== vision_off：远程停止视觉运动检测 =====
-    else if (command == QLatin1String("vision_off"))
+    else if (command == QLatin1String("vision_off")) // 匹配关闭视觉变化检测命令。
     {
         if (visionDetectionCheckBox->isChecked()) // 仅当运动检测已开启时执行
         {
@@ -1340,36 +1341,36 @@ void CameraStreamingPage::handleMqttCommand(const QByteArray &payload)
         }
     }
     // ===== set_stream_endpoint：远程修改 TCP 推流目标地址 =====
-    else if (command == QLatin1String("set_stream_endpoint"))
+    else if (command == QLatin1String("set_stream_endpoint")) // 匹配更新推流目标和协议的命令。
     {
         const QString host = request.value(QStringLiteral("host")).toString().trimmed(); // 从 JSON 提取目标 IP
         const int port = request.value(QStringLiteral("port")).toInt();                  // 从 JSON 提取目标端口
-        const QString transport = request.value(QStringLiteral("transport"))
-                                      .toString(streamTransportComboBox->currentData().toString())
-                                      .toLower();
-        if (host.isEmpty() || port <= 0 || port > 65535 ||
-            (transport != QLatin1String("tcp") && transport != QLatin1String("udp")))
+        const QString transport = request.value(QStringLiteral("transport")) // transport 保存命令指定的传输协议。
+                                      .toString(streamTransportComboBox->currentData().toString()) // 缺少字段时沿用当前协议。
+                                      .toLower();                              // 转小写后再进行 tcp/udp 合法性判断。
+        if (host.isEmpty() || port <= 0 || port > 65535 ||             // 地址为空或端口超出有效范围时拒绝；或者
+            (transport != QLatin1String("tcp") && transport != QLatin1String("udp"))) // 协议既不是 TCP 也不是 UDP 时拒绝。
         {
             accepted = false;                                    // 标记命令未接受
             result = QStringLiteral("视频服务端地址或端口无效"); // 设置错误原因
         }
-        else
+        else // 三项端点参数均合法，可以写入 UI 并应用。
         {
             serverAddressEdit->setText(host);  // 更新 UI 中的 IP 输入框
             serverPortSpinBox->setValue(port); // 更新 UI 中的端口选择器
-            streamTransportComboBox->setCurrentIndex(
-                streamTransportComboBox->findData(transport));
+            streamTransportComboBox->setCurrentIndex(                   // 将远程指定的协议同步到页面下拉框。
+                streamTransportComboBox->findData(transport));          // 按内部协议字符串找到对应选项索引。
             applyServerEndpoint();             // 应用新配置并同步到 TcpFrameSender
         }
     }
     // ===== 未知命令处理 =====
-    else
+    else // 没有命中任何已支持的远程命令。
     {
         accepted = false;                                     // 标记命令未被识别
         result = QStringLiteral("未知命令：%1").arg(command); // 将命令名嵌入错误消息
     }
 
-    qInfo() << "收到MQTT远程命令：" << command << "结果：" << result;
+    qInfo() << "收到MQTT远程命令：" << command << "结果：" << result; // 记录命令名和最终处理结果。
 
     // ===== 回复命令确认 acknowledgement 到 command_ack 主题 =====
     // PC 接收端通过订阅 devices/{id}/command_ack 获取命令执行结果
@@ -1383,5 +1384,5 @@ void CameraStreamingPage::handleMqttCommand(const QByteArray &payload)
     publishMqttJson(mqttTopic(QStringLiteral("command_ack")), acknowledgement);       // 通过 MQTT QoS 1 发布确认消息
 
     // 命令执行后立即发送一次心跳，确保 PC 端通过 status 主题看到最新设备状态
-    publishHeartbeat();
+    publishHeartbeat(); // 立即上报执行命令后的最新设备状态。
 }

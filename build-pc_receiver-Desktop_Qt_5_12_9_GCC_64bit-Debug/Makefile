@@ -14,10 +14,10 @@ EQ            = =
 
 CC            = gcc
 CXX           = g++
-DEFINES       = -DQT_QML_DEBUG -DQT_WIDGETS_LIB -DQT_GUI_LIB -DQT_NETWORK_LIB -DQT_CORE_LIB
+DEFINES       = -DQT_QML_DEBUG -DQT_MULTIMEDIAWIDGETS_LIB -DQT_WIDGETS_LIB -DQT_MULTIMEDIA_LIB -DQT_GUI_LIB -DQT_NETWORK_LIB -DQT_CORE_LIB
 CFLAGS        = -pipe -g -Wall -W -D_REENTRANT -fPIC $(DEFINES)
 CXXFLAGS      = -pipe -g -std=gnu++11 -Wall -W -D_REENTRANT -fPIC $(DEFINES)
-INCPATH       = -I../pc_receiver -I. -I../video -I../lib/x86_qtmqtt/src -I/opt/Qt5.12.9/5.12.9/gcc_64/include -I/opt/Qt5.12.9/5.12.9/gcc_64/include/QtWidgets -I/opt/Qt5.12.9/5.12.9/gcc_64/include/QtGui -I/opt/Qt5.12.9/5.12.9/gcc_64/include/QtNetwork -I/opt/Qt5.12.9/5.12.9/gcc_64/include/QtCore -I. -isystem /usr/include/libdrm -I/opt/Qt5.12.9/5.12.9/gcc_64/mkspecs/linux-g++
+INCPATH       = -I../pc_receiver -I. -I../video -I../lib/x86_qtmqtt/src -I/opt/Qt5.12.9/5.12.9/gcc_64/include -I/opt/Qt5.12.9/5.12.9/gcc_64/include/QtMultimediaWidgets -I/opt/Qt5.12.9/5.12.9/gcc_64/include/QtWidgets -I/opt/Qt5.12.9/5.12.9/gcc_64/include/QtMultimedia -I/opt/Qt5.12.9/5.12.9/gcc_64/include/QtGui -I/opt/Qt5.12.9/5.12.9/gcc_64/include/QtNetwork -I/opt/Qt5.12.9/5.12.9/gcc_64/include/QtCore -I. -isystem /usr/include/libdrm -I/opt/Qt5.12.9/5.12.9/gcc_64/mkspecs/linux-g++
 QMAKE         = /opt/Qt5.12.9/5.12.9/gcc_64/bin/qmake
 DEL_FILE      = rm -f
 CHK_DIR_EXISTS= test -d
@@ -39,8 +39,8 @@ COMPRESS      = gzip -9f
 DISTNAME      = imx6ull_pc_receiver1.0.0
 DISTDIR = /home/dwm/imx6ull_project/smart_terminal-main/project/build-pc_receiver-Desktop_Qt_5_12_9_GCC_64bit-Debug/.tmp/imx6ull_pc_receiver1.0.0
 LINK          = g++
-LFLAGS        = -Wl,-rpath,/home/dwm/imx6ull_project/smart_terminal-main/project/pc_receiver/../lib/x86_qtmqtt/lib -Wl,-rpath,/opt/Qt5.12.9/5.12.9/gcc_64/lib
-LIBS          = $(SUBLIBS) /home/dwm/imx6ull_project/smart_terminal-main/project/pc_receiver/../lib/x86_qtmqtt/lib/libQt5Mqtt.so.5.12.9 -lavcodec -lavutil -lswscale /opt/Qt5.12.9/5.12.9/gcc_64/lib/libQt5Widgets.so /opt/Qt5.12.9/5.12.9/gcc_64/lib/libQt5Gui.so /opt/Qt5.12.9/5.12.9/gcc_64/lib/libQt5Network.so /opt/Qt5.12.9/5.12.9/gcc_64/lib/libQt5Core.so -lGL -lpthread   
+LFLAGS        = -Wl,-rpath,/home/dwm/imx6ull_project/smart_terminal-main/project/pc_receiver/../lib/x86_qtmqtt/lib -Wl,-rpath,/opt/Qt5.12.9/5.12.9/gcc_64/lib -Wl,-rpath-link,/opt/Qt5.12.9/5.12.9/gcc_64/lib
+LIBS          = $(SUBLIBS) /home/dwm/imx6ull_project/smart_terminal-main/project/pc_receiver/../lib/x86_qtmqtt/lib/libQt5Mqtt.so.5.12.9 -lavcodec -lavutil -lswscale /opt/Qt5.12.9/5.12.9/gcc_64/lib/libQt5MultimediaWidgets.so /opt/Qt5.12.9/5.12.9/gcc_64/lib/libQt5Widgets.so /opt/Qt5.12.9/5.12.9/gcc_64/lib/libQt5Multimedia.so /opt/Qt5.12.9/5.12.9/gcc_64/lib/libQt5Gui.so /opt/Qt5.12.9/5.12.9/gcc_64/lib/libQt5Network.so /opt/Qt5.12.9/5.12.9/gcc_64/lib/libQt5Core.so -lGL -lpthread   
 AR            = ar cqs
 RANLIB        = 
 SED           = sed
@@ -835,7 +835,7 @@ moc_archive_browser.cpp: ../pc_receiver/archive_browser.h \
 		/opt/Qt5.12.9/5.12.9/gcc_64/include/QtGui/qtouchdevice.h \
 		moc_predefs.h \
 		/opt/Qt5.12.9/5.12.9/gcc_64/bin/moc
-	/opt/Qt5.12.9/5.12.9/gcc_64/bin/moc $(DEFINES) --include /home/dwm/imx6ull_project/smart_terminal-main/project/build-pc_receiver-Desktop_Qt_5_12_9_GCC_64bit-Debug/moc_predefs.h -I/opt/Qt5.12.9/5.12.9/gcc_64/mkspecs/linux-g++ -I/home/dwm/imx6ull_project/smart_terminal-main/project/pc_receiver -I/home/dwm/imx6ull_project/smart_terminal-main/project/video -I/home/dwm/imx6ull_project/smart_terminal-main/project/lib/x86_qtmqtt/src -I/opt/Qt5.12.9/5.12.9/gcc_64/include -I/opt/Qt5.12.9/5.12.9/gcc_64/include/QtWidgets -I/opt/Qt5.12.9/5.12.9/gcc_64/include/QtGui -I/opt/Qt5.12.9/5.12.9/gcc_64/include/QtNetwork -I/opt/Qt5.12.9/5.12.9/gcc_64/include/QtCore -I. -I/usr/include/c++/11 -I/usr/include/x86_64-linux-gnu/c++/11 -I/usr/include/c++/11/backward -I/usr/lib/gcc/x86_64-linux-gnu/11/include -I/usr/local/include -I/usr/include/x86_64-linux-gnu -I/usr/include ../pc_receiver/archive_browser.h -o moc_archive_browser.cpp
+	/opt/Qt5.12.9/5.12.9/gcc_64/bin/moc $(DEFINES) --include /home/dwm/imx6ull_project/smart_terminal-main/project/build-pc_receiver-Desktop_Qt_5_12_9_GCC_64bit-Debug/moc_predefs.h -I/opt/Qt5.12.9/5.12.9/gcc_64/mkspecs/linux-g++ -I/home/dwm/imx6ull_project/smart_terminal-main/project/pc_receiver -I/home/dwm/imx6ull_project/smart_terminal-main/project/video -I/home/dwm/imx6ull_project/smart_terminal-main/project/lib/x86_qtmqtt/src -I/opt/Qt5.12.9/5.12.9/gcc_64/include -I/opt/Qt5.12.9/5.12.9/gcc_64/include/QtMultimediaWidgets -I/opt/Qt5.12.9/5.12.9/gcc_64/include/QtWidgets -I/opt/Qt5.12.9/5.12.9/gcc_64/include/QtMultimedia -I/opt/Qt5.12.9/5.12.9/gcc_64/include/QtGui -I/opt/Qt5.12.9/5.12.9/gcc_64/include/QtNetwork -I/opt/Qt5.12.9/5.12.9/gcc_64/include/QtCore -I. -I/usr/include/c++/11 -I/usr/include/x86_64-linux-gnu/c++/11 -I/usr/include/c++/11/backward -I/usr/lib/gcc/x86_64-linux-gnu/11/include -I/usr/local/include -I/usr/include/x86_64-linux-gnu -I/usr/include ../pc_receiver/archive_browser.h -o moc_archive_browser.cpp
 
 moc_receiver_window.cpp: ../pc_receiver/receiver_window.h \
 		../pc_receiver/h264_decoder.h \
@@ -964,7 +964,7 @@ moc_receiver_window.cpp: ../pc_receiver/receiver_window.h \
 		/opt/Qt5.12.9/5.12.9/gcc_64/include/QtGui/qtouchdevice.h \
 		moc_predefs.h \
 		/opt/Qt5.12.9/5.12.9/gcc_64/bin/moc
-	/opt/Qt5.12.9/5.12.9/gcc_64/bin/moc $(DEFINES) --include /home/dwm/imx6ull_project/smart_terminal-main/project/build-pc_receiver-Desktop_Qt_5_12_9_GCC_64bit-Debug/moc_predefs.h -I/opt/Qt5.12.9/5.12.9/gcc_64/mkspecs/linux-g++ -I/home/dwm/imx6ull_project/smart_terminal-main/project/pc_receiver -I/home/dwm/imx6ull_project/smart_terminal-main/project/video -I/home/dwm/imx6ull_project/smart_terminal-main/project/lib/x86_qtmqtt/src -I/opt/Qt5.12.9/5.12.9/gcc_64/include -I/opt/Qt5.12.9/5.12.9/gcc_64/include/QtWidgets -I/opt/Qt5.12.9/5.12.9/gcc_64/include/QtGui -I/opt/Qt5.12.9/5.12.9/gcc_64/include/QtNetwork -I/opt/Qt5.12.9/5.12.9/gcc_64/include/QtCore -I. -I/usr/include/c++/11 -I/usr/include/x86_64-linux-gnu/c++/11 -I/usr/include/c++/11/backward -I/usr/lib/gcc/x86_64-linux-gnu/11/include -I/usr/local/include -I/usr/include/x86_64-linux-gnu -I/usr/include ../pc_receiver/receiver_window.h -o moc_receiver_window.cpp
+	/opt/Qt5.12.9/5.12.9/gcc_64/bin/moc $(DEFINES) --include /home/dwm/imx6ull_project/smart_terminal-main/project/build-pc_receiver-Desktop_Qt_5_12_9_GCC_64bit-Debug/moc_predefs.h -I/opt/Qt5.12.9/5.12.9/gcc_64/mkspecs/linux-g++ -I/home/dwm/imx6ull_project/smart_terminal-main/project/pc_receiver -I/home/dwm/imx6ull_project/smart_terminal-main/project/video -I/home/dwm/imx6ull_project/smart_terminal-main/project/lib/x86_qtmqtt/src -I/opt/Qt5.12.9/5.12.9/gcc_64/include -I/opt/Qt5.12.9/5.12.9/gcc_64/include/QtMultimediaWidgets -I/opt/Qt5.12.9/5.12.9/gcc_64/include/QtWidgets -I/opt/Qt5.12.9/5.12.9/gcc_64/include/QtMultimedia -I/opt/Qt5.12.9/5.12.9/gcc_64/include/QtGui -I/opt/Qt5.12.9/5.12.9/gcc_64/include/QtNetwork -I/opt/Qt5.12.9/5.12.9/gcc_64/include/QtCore -I. -I/usr/include/c++/11 -I/usr/include/x86_64-linux-gnu/c++/11 -I/usr/include/c++/11/backward -I/usr/lib/gcc/x86_64-linux-gnu/11/include -I/usr/local/include -I/usr/include/x86_64-linux-gnu -I/usr/include ../pc_receiver/receiver_window.h -o moc_receiver_window.cpp
 
 compiler_moc_objc_header_make_all:
 compiler_moc_objc_header_clean:
@@ -1143,6 +1143,24 @@ archive_browser.o: ../pc_receiver/archive_browser.cpp ../pc_receiver/archive_bro
 		/opt/Qt5.12.9/5.12.9/gcc_64/include/QtWidgets/qtabwidget.h \
 		/opt/Qt5.12.9/5.12.9/gcc_64/include/QtWidgets/qrubberband.h \
 		/opt/Qt5.12.9/5.12.9/gcc_64/include/QtWidgets/QListWidgetItem \
+		/opt/Qt5.12.9/5.12.9/gcc_64/include/QtMultimedia/QMediaContent \
+		/opt/Qt5.12.9/5.12.9/gcc_64/include/QtMultimedia/qmediacontent.h \
+		/opt/Qt5.12.9/5.12.9/gcc_64/include/QtMultimedia/qmediaresource.h \
+		/opt/Qt5.12.9/5.12.9/gcc_64/include/QtNetwork/qnetworkrequest.h \
+		/opt/Qt5.12.9/5.12.9/gcc_64/include/QtCore/QSharedDataPointer \
+		/opt/Qt5.12.9/5.12.9/gcc_64/include/QtCore/QString \
+		/opt/Qt5.12.9/5.12.9/gcc_64/include/QtCore/QUrl \
+		/opt/Qt5.12.9/5.12.9/gcc_64/include/QtCore/QVariant \
+		/opt/Qt5.12.9/5.12.9/gcc_64/include/QtMultimedia/qtmultimediaglobal.h \
+		/opt/Qt5.12.9/5.12.9/gcc_64/include/QtMultimedia/qtmultimedia-config.h \
+		/opt/Qt5.12.9/5.12.9/gcc_64/include/QtMultimedia/QMediaPlayer \
+		/opt/Qt5.12.9/5.12.9/gcc_64/include/QtMultimedia/qmediaplayer.h \
+		/opt/Qt5.12.9/5.12.9/gcc_64/include/QtMultimedia/qmediaobject.h \
+		/opt/Qt5.12.9/5.12.9/gcc_64/include/QtMultimedia/qmultimedia.h \
+		/opt/Qt5.12.9/5.12.9/gcc_64/include/QtMultimedia/qmediaenumdebug.h \
+		/opt/Qt5.12.9/5.12.9/gcc_64/include/QtCore/qmetaobject.h \
+		/opt/Qt5.12.9/5.12.9/gcc_64/include/QtMultimedia/qaudio.h \
+		/opt/Qt5.12.9/5.12.9/gcc_64/include/QtNetwork/qnetworkconfiguration.h \
 		/opt/Qt5.12.9/5.12.9/gcc_64/include/QtGui/QPixmap \
 		/opt/Qt5.12.9/5.12.9/gcc_64/include/QtWidgets/QPushButton \
 		/opt/Qt5.12.9/5.12.9/gcc_64/include/QtWidgets/qpushbutton.h \
@@ -1153,13 +1171,18 @@ archive_browser.o: ../pc_receiver/archive_browser.cpp ../pc_receiver/archive_bro
 		/opt/Qt5.12.9/5.12.9/gcc_64/include/QtWidgets/QSpinBox \
 		/opt/Qt5.12.9/5.12.9/gcc_64/include/QtWidgets/qspinbox.h \
 		/opt/Qt5.12.9/5.12.9/gcc_64/include/QtCore/QStandardPaths \
+		/opt/Qt5.12.9/5.12.9/gcc_64/include/QtWidgets/QStackedWidget \
+		/opt/Qt5.12.9/5.12.9/gcc_64/include/QtWidgets/qstackedwidget.h \
 		/opt/Qt5.12.9/5.12.9/gcc_64/include/QtNetwork/QTcpSocket \
 		/opt/Qt5.12.9/5.12.9/gcc_64/include/QtNetwork/qtcpsocket.h \
 		/opt/Qt5.12.9/5.12.9/gcc_64/include/QtCore/QTimer \
 		/opt/Qt5.12.9/5.12.9/gcc_64/include/QtCore/qtimer.h \
 		/opt/Qt5.12.9/5.12.9/gcc_64/include/QtCore/qbasictimer.h \
-		/opt/Qt5.12.9/5.12.9/gcc_64/include/QtCore/QUrl \
-		/opt/Qt5.12.9/5.12.9/gcc_64/include/QtWidgets/QVBoxLayout
+		/opt/Qt5.12.9/5.12.9/gcc_64/include/QtWidgets/QVBoxLayout \
+		/opt/Qt5.12.9/5.12.9/gcc_64/include/QtMultimediaWidgets/QVideoWidget \
+		/opt/Qt5.12.9/5.12.9/gcc_64/include/QtMultimediaWidgets/qvideowidget.h \
+		/opt/Qt5.12.9/5.12.9/gcc_64/include/QtMultimediaWidgets/qtmultimediawidgetdefs.h \
+		/opt/Qt5.12.9/5.12.9/gcc_64/include/QtMultimedia/qmediabindableinterface.h
 	$(CXX) -c $(CXXFLAGS) $(INCPATH) -o archive_browser.o ../pc_receiver/archive_browser.cpp
 
 h264_decoder.o: ../pc_receiver/h264_decoder.cpp ../pc_receiver/h264_decoder.h \
