@@ -1,0 +1,26 @@
+[Unit]
+Description=Adaptive H.264 video sender
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=adaptive-video
+Group=adaptive-video
+SupplementaryGroups=video
+EnvironmentFile=-/etc/default/adaptive-video
+RuntimeDirectory=adaptive-video
+RuntimeDirectoryMode=0755
+ExecStart=/usr/bin/adaptive_sender --host ${SERVER_HOST} --port ${SERVER_PORT} --device ${VIDEO_DEVICE} --width ${VIDEO_WIDTH} --height ${VIDEO_HEIGHT} --fps ${VIDEO_FPS} --mode ${CONTROL_MODE} --min-bitrate ${MIN_BITRATE} --max-bitrate ${MAX_BITRATE} --initial-bitrate ${INITIAL_BITRATE} --gop ${INITIAL_GOP} --metrics /run/adaptive-video/metrics.csv
+Restart=always
+RestartSec=2
+Nice=-5
+LimitNOFILE=1024
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+UMask=0027
+
+[Install]
+WantedBy=multi-user.target
